@@ -139,7 +139,12 @@ async function run() {
     const releaseBranchPattern = core.getInput('release-branch-pattern') || 'release/v*';
     const versionSource = core.getInput('version-source') || 'auto';
     const tagPrefix = core.getInput('tag-prefix') || 'v';
-    const token = core.getInput('github-token');
+    const token = core.getInput('github-token', { required: true });
+    
+    if (!token) {
+      core.setFailed('github-token is required to create tags');
+      return;
+    }
     
     // Get GitHub context
     const context = github.context;
