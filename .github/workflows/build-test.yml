@@ -58,6 +58,9 @@ jobs:
       - name: Run tests
         run: npm test
       
+      - name: Run Cucumber tests
+        run: npm run test:cucumber
+      
       - name: Validate coverage
         uses: vlindersoftware/validatecoverage@v1
         with:

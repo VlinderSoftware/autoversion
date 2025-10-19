@@ -85,6 +85,14 @@ The action supports multiple version sources (controlled by `version-source` inp
 - **First release** on `release/v1`: Creates tags `v1`, `v1.0`, and `v1.0.0`
 - **Subsequent releases** on `release/v1`: Updates `v1` and `v1.0` tags to point to the latest commit, creates new patch tag (e.g., `v1.0.1`, `v1.0.2`)
 
+### Validation
+
+The action includes validation to prevent common errors:
+
+- **Duplicate tags**: Fails if the exact patch version tag already exists (e.g., cannot create `v1.2.3` twice)
+- **Version mismatches**: When using `package.json` mode or auto mode, validates that the major version in `package.json` matches the release branch (e.g., `package.json` with version `2.0.0` on branch `release/v1` will fail)
+- **Minor version validation**: If the release branch specifies a minor version (e.g., `release/v2.1`), validates it matches the `package.json` minor version
+
 ## Inputs
 
 | Input | Description | Required | Default |

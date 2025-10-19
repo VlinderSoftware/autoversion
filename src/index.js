@@ -183,6 +183,19 @@ async function run() {
       }
       core.info(`Using version from package.json: ${version.major}.${version.minor}.${version.patch}`);
       
+      // Validate version matches branch if specified
+      const branchVersion = getVersionFromBranchName(branchName, releaseBranchPattern);
+      if (branchVersion) {
+        if (branchVersion.major !== version.major) {
+          core.setFailed(`Version mismatch: package.json has major version ${version.major} but release branch indicates v${branchVersion.major}`);
+          return;
+        }
+        if (branchVersion.minor !== 0 && branchVersion.minor !== version.minor) {
+          core.setFailed(`Version mismatch: package.json has minor version ${version.minor} but release branch indicates v${branchVersion.major}.${branchVersion.minor}`);
+          return;
+        }
+      }
+      
       // Auto-increment patch version if patch is 0
       if (version.patch === 0 && createTags && token) {
         const octokit = github.getOctokit(token);
@@ -196,6 +209,19 @@ async function run() {
       
       if (version) {
         core.info(`Auto-detected version from package.json: ${version.major}.${version.minor}.${version.patch}`);
+        
+        // Validate version matches branch if specified
+        const branchVersion = getVersionFromBranchName(branchName, releaseBranchPattern);
+        if (branchVersion) {
+          if (branchVersion.major !== version.major) {
+            core.setFailed(`Version mismatch: package.json has major version ${version.major} but release branch indicates v${branchVersion.major}`);
+            return;
+          }
+          if (branchVersion.minor !== 0 && branchVersion.minor !== version.minor) {
+            core.setFailed(`Version mismatch: package.json has minor version ${version.minor} but release branch indicates v${branchVersion.major}.${branchVersion.minor}`);
+            return;
+          }
+        }
         
         // Auto-increment patch version if patch is 0
         if (version.patch === 0 && createTags && token) {
@@ -237,6 +263,23 @@ async function run() {
       const octokit = github.getOctokit(token);
       const { owner, repo } = context.repo;
       const sha = context.sha;
+      
+      // Check if patch tag already exists before attempting to create it
+      try {
+        await octokit.rest.git.getRef({
+          owner,
+          repo,
+          ref: `tags/${patchTag}`
+        });
+        // If we get here, tag exists
+        core.setFailed(`Tag ${patchTag} already exists. Cannot create duplicate version tag.`);
+        return;
+      } catch (error) {
+        if (error.status !== 404) {
+          throw error;
+        }
+        // Tag doesn't exist, we can proceed
+      }
       
       // Create/update tags
       if (await createOrUpdateTag(octokit, owner, repo, majorTag, sha, `Release ${majorTag}`)) {
