@@ -62,7 +62,9 @@ async function getNextPatchVersion(octokit, owner, repo, major, minor) {
     
     // Filter tags matching our major.minor version
     const prefix = core.getInput('tag-prefix') || 'v';
-    const pattern = new RegExp(`^${prefix}${major}\\.${minor}\\.(\\d+)$`);
+    // Escape special regex characters in prefix to prevent ReDoS
+    const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`^${escapedPrefix}${major}\\.${minor}\\.(\\d+)$`);
     
     let maxPatch = -1;
     for (const tag of tags) {
