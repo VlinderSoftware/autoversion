@@ -62,7 +62,7 @@ jobs:
         run: npm run test:cucumber
       
       - name: Validate coverage
-        uses: vlindersoftware/validatecoverage@v1
+        uses: vlindersoftware/validate-coverage@v1
         with:
           coverage-file: coverage/coverage-summary.json
           min-coverage: 95
