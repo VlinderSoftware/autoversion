@@ -1,5 +1,5 @@
 const { Given, When, Then, Before, After } = require('@cucumber/cucumber');
-const { expect } = require('@jest/globals');
+const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
@@ -177,53 +177,54 @@ When('I run the autoversion action with create-tags {string}', async function(cr
 
 // Then steps
 Then('the action should fail', function() {
-  expect(testContext.actionFailed).toBe(true);
+  assert.strictEqual(testContext.actionFailed, true, 'Action should have failed');
 });
 
 Then('the error should mention that tag {string} already exists', function(tagName) {
-  expect(testContext.failureMessage).toContain(tagName);
-  expect(testContext.failureMessage.toLowerCase()).toContain('exists');
+  assert.ok(testContext.failureMessage.includes(tagName), `Error message should contain tag name ${tagName}`);
+  assert.ok(testContext.failureMessage.toLowerCase().includes('exists'), 'Error message should mention "exists"');
 });
 
 Then('the error should mention version mismatch between branch and package.json', function() {
-  expect(testContext.failureMessage.toLowerCase()).toMatch(/mismatch|match|version/);
+  const msg = testContext.failureMessage.toLowerCase();
+  assert.ok(msg.match(/mismatch|match|version/), 'Error message should mention version mismatch');
 });
 
 Then('tags {string}, {string}, and {string} should be created', function(tag1, tag2, tag3) {
-  expect(testContext.createdTags).toContain(tag1);
-  expect(testContext.createdTags).toContain(tag2);
-  expect(testContext.createdTags).toContain(tag3);
+  assert.ok(testContext.createdTags.includes(tag1), `Created tags should include ${tag1}`);
+  assert.ok(testContext.createdTags.includes(tag2), `Created tags should include ${tag2}`);
+  assert.ok(testContext.createdTags.includes(tag3), `Created tags should include ${tag3}`);
 });
 
 Then('all tags should point to the current commit', function() {
   // Verified by mock implementation
-  expect(testContext.createdTags.length).toBeGreaterThan(0);
+  assert.ok(testContext.createdTags.length > 0, 'At least one tag should be created');
 });
 
 Then('tags {string} and {string} should be updated to current commit', function(tag1, tag2) {
-  expect(testContext.updatedTags).toContain(tag1);
-  expect(testContext.updatedTags).toContain(tag2);
+  assert.ok(testContext.updatedTags.includes(tag1), `Updated tags should include ${tag1}`);
+  assert.ok(testContext.updatedTags.includes(tag2), `Updated tags should include ${tag2}`);
 });
 
 Then('tag {string} should be created pointing to current commit', function(tagName) {
-  expect(testContext.createdTags).toContain(tagName);
+  assert.ok(testContext.createdTags.includes(tagName), `Created tags should include ${tagName}`);
 });
 
 Then('no tags should be created', function() {
-  expect(testContext.createdTags.length).toBe(0);
-  expect(testContext.updatedTags.length).toBe(0);
+  assert.strictEqual(testContext.createdTags.length, 0, 'No tags should be created');
+  assert.strictEqual(testContext.updatedTags.length, 0, 'No tags should be updated');
 });
 
 Then('the version output should be {string}', function(expectedVersion) {
-  expect(testContext.actionOutputs.version).toBe(expectedVersion);
+  assert.strictEqual(testContext.actionOutputs.version, expectedVersion, `Version output should be ${expectedVersion}`);
 });
 
 Then('the version should be determined from package.json', function() {
   // Check that package.json was read
-  expect(mockFs.readFileSync).toHaveBeenCalled();
+  assert.ok(mockFs.readFileSync.mock.calls.length > 0, 'package.json should have been read');
 });
 
 Then('the version should be determined from branch name', function() {
   // Check that package.json was NOT successfully read or doesn't exist
-  expect(testContext.packageJsonVersion).toBeNull();
+  assert.strictEqual(testContext.packageJsonVersion, null, 'package.json version should be null');
 });
