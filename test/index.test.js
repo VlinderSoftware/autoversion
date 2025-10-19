@@ -32,16 +32,15 @@ jest.mock('@actions/github', () => mockGithub);
 jest.mock('fs');
 jest.mock('path');
 
+// Import run function once
+const { run } = require('../src/index.js');
+
 describe('Autoversion Action', () => {
-  let run;
   let originalCwd;
   
   beforeEach(() => {
     // Reset all mocks
     jest.clearAllMocks();
-    
-    // Reset module cache to get fresh instance
-    jest.resetModules();
     
     // Mock process.cwd
     originalCwd = process.cwd;
@@ -59,7 +58,12 @@ describe('Autoversion Action', () => {
       return defaults[name] || '';
     });
     
+    // Mock path.join to work like actual path joining
     path.join.mockImplementation((...args) => args.join('/'));
+    
+    // Default: no package.json file exists
+    fs.existsSync.mockReturnValue(false);
+    fs.readFileSync.mockReturnValue('{}');
     
     // Mock octokit
     const mockOctokit = {
@@ -76,10 +80,6 @@ describe('Autoversion Action', () => {
     };
     
     mockGithub.getOctokit.mockReturnValue(mockOctokit);
-    
-    // Import run function
-    const indexModule = require('../src/index.js');
-    run = indexModule.run;
   });
   
   afterEach(() => {
@@ -193,7 +193,7 @@ describe('Autoversion Action', () => {
   });
   
   describe('Version source - package.json', () => {
-    test.skip('should use version from package.json when available', async () => {
+    test('should use version from package.json when available', async () => {
       mockGithub.context.ref = 'refs/heads/release/v1';
       fs.existsSync.mockReturnValue(true);
       fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.5.7' }));
@@ -214,20 +214,29 @@ describe('Autoversion Action', () => {
       
       await run();
       
+      // Check if there were any failures first
+      if (mockCore.setFailed.mock.calls.length > 0) {
+        console.log('setFailed was called with:', mockCore.setFailed.mock.calls);
+      }
+      
       expect(mockCore.setOutput).toHaveBeenCalledWith('version', '1.5.7');
       expect(mockCore.setOutput).toHaveBeenCalledWith('major-tag', 'v1');
       expect(mockCore.setOutput).toHaveBeenCalledWith('minor-tag', 'v1.5');
       expect(mockCore.setOutput).toHaveBeenCalledWith('patch-tag', 'v1.5.7');
     });
     
-    test.skip('should fail when package.json not found in package.json mode', async () => {
+    test('should fail when package.json not found in package.json mode', async () => {
       mockGithub.context.ref = 'refs/heads/release/v1';
       fs.existsSync.mockReturnValue(false);
       
       mockCore.getInput.mockImplementation((name) => {
-        if (name === 'version-source') return 'package.json';
-        if (name === 'release-branch-pattern') return 'release/v*';
-        return '';
+        const defaults = {
+          'version-source': 'package.json',
+          'release-branch-pattern': 'release/v*',
+          'tag-prefix': 'v',
+          'create-tags': 'false'
+        };
+        return defaults[name] || '';
       });
       
       await run();
@@ -235,7 +244,7 @@ describe('Autoversion Action', () => {
       expect(mockCore.setFailed).toHaveBeenCalledWith('Could not read version from package.json');
     });
     
-    test.skip('should fail when major version mismatch between package.json and branch', async () => {
+    test('should fail when major version mismatch between package.json and branch', async () => {
       mockGithub.context.ref = 'refs/heads/release/v1';
       fs.existsSync.mockReturnValue(true);
       fs.readFileSync.mockReturnValue(JSON.stringify({ version: '2.0.0' }));
@@ -256,7 +265,7 @@ describe('Autoversion Action', () => {
       expect(mockCore.setFailed).toHaveBeenCalledWith(expect.stringContaining('Version mismatch'));
     });
     
-    test.skip('should fail when minor version mismatch between package.json and branch', async () => {
+    test('should fail when minor version mismatch between package.json and branch', async () => {
       mockGithub.context.ref = 'refs/heads/release/v2.1';
       fs.existsSync.mockReturnValue(true);
       fs.readFileSync.mockReturnValue(JSON.stringify({ version: '2.0.0' }));
@@ -275,6 +284,28 @@ describe('Autoversion Action', () => {
       await run();
       
       expect(mockCore.setFailed).toHaveBeenCalledWith(expect.stringContaining('Version mismatch'));
+    });
+    
+    test('should handle package.json read errors', async () => {
+      mockGithub.context.ref = 'refs/heads/release/v1';
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockImplementation(() => {
+        throw new Error('Permission denied');
+      });
+      
+      mockCore.getInput.mockImplementation((name) => {
+        const defaults = {
+          'version-source': 'package.json',
+          'release-branch-pattern': 'release/v*',
+          'tag-prefix': 'v',
+          'create-tags': 'false'
+        };
+        return defaults[name] || '';
+      });
+      
+      await run();
+      
+      expect(mockCore.setFailed).toHaveBeenCalledWith('Could not read version from package.json');
     });
   });
   
@@ -325,7 +356,7 @@ describe('Autoversion Action', () => {
   });
   
   describe('Auto version source mode', () => {
-    test.skip('should use package.json when available in auto mode', async () => {
+    test('should use package.json when available in auto mode', async () => {
       mockGithub.context.ref = 'refs/heads/release/v1';
       fs.existsSync.mockReturnValue(true);
       fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.2.0' }));
@@ -373,7 +404,7 @@ describe('Autoversion Action', () => {
       expect(mockCore.setOutput).toHaveBeenCalledWith('version', expect.stringMatching(/^2\.0\.\d+$/));
     });
     
-    test.skip('should fail when major version mismatch in auto mode', async () => {
+    test('should fail when major version mismatch in auto mode', async () => {
       mockGithub.context.ref = 'refs/heads/release/v1';
       fs.existsSync.mockReturnValue(true);
       fs.readFileSync.mockReturnValue(JSON.stringify({ version: '3.0.0' }));
@@ -393,10 +424,30 @@ describe('Autoversion Action', () => {
       
       expect(mockCore.setFailed).toHaveBeenCalledWith(expect.stringContaining('Version mismatch'));
     });
+    
+    test('should fail when no version can be determined', async () => {
+      mockGithub.context.ref = 'refs/heads/release/invalidname';
+      fs.existsSync.mockReturnValue(false);
+      
+      mockCore.getInput.mockImplementation((name) => {
+        const defaults = {
+          'version-source': 'auto',
+          'github-token': 'test-token',
+          'create-tags': 'true',
+          'release-branch-pattern': 'release/v*',
+          'tag-prefix': 'v'
+        };
+        return defaults[name] || '';
+      });
+      
+      await run();
+      
+      expect(mockCore.setFailed).toHaveBeenCalledWith('Could not determine version from any source');
+    });
   });
   
   describe('Tag already exists', () => {
-    test.skip('should fail when patch tag already exists', async () => {
+    test('should fail when patch tag already exists', async () => {
       mockGithub.context.ref = 'refs/heads/release/v1';
       fs.existsSync.mockReturnValue(true);
       fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.2.3' }));
@@ -422,10 +473,37 @@ describe('Autoversion Action', () => {
       
       expect(mockCore.setFailed).toHaveBeenCalledWith(expect.stringContaining('already exists'));
     });
+    
+    test('should handle non-404 errors when checking tag existence', async () => {
+      mockGithub.context.ref = 'refs/heads/release/v1';
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.2.3' }));
+      
+      mockCore.getInput.mockImplementation((name) => {
+        const defaults = {
+          'version-source': 'package.json',
+          'github-token': 'test-token',
+          'create-tags': 'true',
+          'release-branch-pattern': 'release/v*',
+          'tag-prefix': 'v'
+        };
+        return defaults[name] || '';
+      });
+      
+      const mockOctokit = mockGithub.getOctokit();
+      // Mock a non-404 error
+      const error = new Error('API Error');
+      error.status = 500;
+      mockOctokit.rest.git.getRef.mockRejectedValue(error);
+      
+      await run();
+      
+      expect(mockCore.setFailed).toHaveBeenCalled();
+    });
   });
   
   describe('Error handling', () => {
-    test.skip('should handle errors when listing tags', async () => {
+    test('should handle errors when listing tags', async () => {
       mockGithub.context.ref = 'refs/heads/release/v1';
       fs.existsSync.mockReturnValue(false);
       
@@ -442,10 +520,12 @@ describe('Autoversion Action', () => {
       
       const mockOctokit = mockGithub.getOctokit();
       mockOctokit.rest.repos.listTags.mockRejectedValue(new Error('API Error'));
+      mockOctokit.rest.git.getRef.mockRejectedValue({ status: 404 });
       
       await run();
       
-      expect(mockCore.setFailed).toHaveBeenCalled();
+      // Should still work with warning, using default patch version 0
+      expect(mockCore.warning).toHaveBeenCalledWith(expect.stringContaining('Could not fetch existing tags'));
     });
     
     test('should skip versioning when not on release branch', async () => {
@@ -469,7 +549,7 @@ describe('Autoversion Action', () => {
   });
   
   describe('Patch version increment', () => {
-    test.skip('should increment patch version when patch is 0', async () => {
+    test('should increment patch version when patch is 0', async () => {
       mockGithub.context.ref = 'refs/heads/release/v1';
       fs.existsSync.mockReturnValue(true);
       fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.2.0' }));
@@ -496,6 +576,121 @@ describe('Autoversion Action', () => {
       // Should increment to v1.2.1
       expect(mockCore.setOutput).toHaveBeenCalledWith('version', expect.stringMatching(/^1\.2\.\d+$/));
       expect(mockCore.setOutput).toHaveBeenCalledWith('patch-tag', expect.stringMatching(/^v1\.2\.\d+$/));
+    });
+    
+    test('should not increment patch version when it is non-zero in package.json mode', async () => {
+      mockGithub.context.ref = 'refs/heads/release/v1';
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.2.5' }));
+      
+      mockCore.getInput.mockImplementation((name) => {
+        const defaults = {
+          'version-source': 'package.json',
+          'github-token': 'test-token',
+          'create-tags': 'true',
+          'release-branch-pattern': 'release/v*',
+          'tag-prefix': 'v'
+        };
+        return defaults[name] || '';
+      });
+      
+      const mockOctokit = mockGithub.getOctokit();
+      mockOctokit.rest.git.getRef.mockRejectedValue({ status: 404 });
+      
+      await run();
+      
+      // Should use the version from package.json as-is
+      expect(mockCore.setOutput).toHaveBeenCalledWith('version', '1.2.5');
+      expect(mockCore.setOutput).toHaveBeenCalledWith('patch-tag', 'v1.2.5');
+    });
+    
+    test('should not increment patch version when it is non-zero in auto mode', async () => {
+      mockGithub.context.ref = 'refs/heads/release/v1';
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.2.7' }));
+      
+      mockCore.getInput.mockImplementation((name) => {
+        const defaults = {
+          'version-source': 'auto',
+          'github-token': 'test-token',
+          'create-tags': 'true',
+          'release-branch-pattern': 'release/v*',
+          'tag-prefix': 'v'
+        };
+        return defaults[name] || '';
+      });
+      
+      const mockOctokit = mockGithub.getOctokit();
+      mockOctokit.rest.git.getRef.mockRejectedValue({ status: 404 });
+      
+      await run();
+      
+      // Should use the version from package.json as-is
+      expect(mockCore.setOutput).toHaveBeenCalledWith('version', '1.2.7');
+      expect(mockCore.setOutput).toHaveBeenCalledWith('patch-tag', 'v1.2.7');
+    });
+    
+    test('should handle tag creation failures gracefully', async () => {
+      mockGithub.context.ref = 'refs/heads/release/v1';
+      fs.existsSync.mockReturnValue(false);
+      
+      mockCore.getInput.mockImplementation((name) => {
+        const defaults = {
+          'github-token': 'test-token',
+          'create-tags': 'true',
+          'release-branch-pattern': 'release/v*',
+          'tag-prefix': 'v',
+          'version-source': 'auto'
+        };
+        return defaults[name] || '';
+      });
+      
+      const mockOctokit = mockGithub.getOctokit();
+      mockOctokit.rest.git.getRef.mockRejectedValue({ status: 404 });
+      mockOctokit.rest.git.createRef.mockRejectedValue(new Error('API Error'));
+      
+      await run();
+      
+      // Should still complete but with error logged
+      expect(mockCore.error).toHaveBeenCalled();
+    });
+    
+    test('should handle non-404 errors when checking if tag exists for update', async () => {
+      mockGithub.context.ref = 'refs/heads/release/v1';
+      fs.existsSync.mockReturnValue(false);
+      
+      mockCore.getInput.mockImplementation((name) => {
+        const defaults = {
+          'github-token': 'test-token',
+          'create-tags': 'true',
+          'release-branch-pattern': 'release/v*',
+          'tag-prefix': 'v',
+          'version-source': 'auto'
+        };
+        return defaults[name] || '';
+      });
+      
+      const mockOctokit = mockGithub.getOctokit();
+      // First call (checking patch tag exists) returns 404
+      // Second call (checking major tag for update) returns 500 error
+      let callCount = 0;
+      mockOctokit.rest.git.getRef.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          const error = new Error('Not found');
+          error.status = 404;
+          return Promise.reject(error);
+        } else {
+          const error = new Error('API Error');
+          error.status = 500;
+          return Promise.reject(error);
+        }
+      });
+      
+      await run();
+      
+      // Should log error for failed tag operations
+      expect(mockCore.error).toHaveBeenCalled();
     });
   });
   
