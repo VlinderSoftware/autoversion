@@ -30,7 +30,7 @@ function getVersionFromPackageJson() {
  * Extract version from release branch name
  * e.g., release/v1 -> { major: 1, minor: 0, patch: 0 }
  */
-function getVersionFromBranchName(branchName, pattern) {
+function getVersionFromBranchName(branchName, _pattern) {
   // Remove refs/heads/ prefix if present
   branchName = branchName.replace('refs/heads/', '');
   
@@ -87,7 +87,7 @@ async function getNextPatchVersion(octokit, owner, repo, major, minor) {
 /**
  * Create or update a git tag
  */
-async function createOrUpdateTag(octokit, owner, repo, tagName, sha, message) {
+async function createOrUpdateTag(octokit, owner, repo, tagName, sha, _message) {
   try {
     // Check if tag exists
     let tagExists = false;
