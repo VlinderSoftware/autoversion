@@ -51,7 +51,7 @@ This document provides detailed examples of how the Autoversion action works in 
    - `v2.1` → **updated** to point to current commit
    - `v2.1.3` → **created** pointing to current commit
 
-**Note:** When using package.json, the action uses the exact version from the file and does NOT auto-increment the patch version.
+**Note:** When using package.json, if the patch version is 0 (e.g., `2.5.0`), the action will auto-increment it to the next available patch version. If the patch version is non-zero (e.g., `2.5.7`), that exact version is used.
 
 ## Scenario 4: Multiple Minor Versions
 
@@ -113,8 +113,8 @@ This document provides detailed examples of how the Autoversion action works in 
 
 When `version-source` is set to `auto` (the default), the action follows this priority:
 
-1. **package.json** - If file exists and has a version field, use it
-2. **Branch name** - Extract version from branch name (e.g., `release/v1.2`)
+1. **package.json** - If file exists and has a version field, use it (auto-increment patch if 0)
+2. **Branch name** - Extract version from branch name (e.g., `release/v1.2`) and auto-increment patch
 
 Example decision tree:
 ```

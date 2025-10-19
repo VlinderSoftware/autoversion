@@ -182,12 +182,28 @@ async function run() {
         return;
       }
       core.info(`Using version from package.json: ${version.major}.${version.minor}.${version.patch}`);
+      
+      // Auto-increment patch version if patch is 0
+      if (version.patch === 0 && createTags && token) {
+        const octokit = github.getOctokit(token);
+        const { owner, repo } = context.repo;
+        version.patch = await getNextPatchVersion(octokit, owner, repo, version.major, version.minor);
+        core.info(`Auto-incremented patch version to: ${version.patch}`);
+      }
     } else {
       // Auto mode: try package.json first, then branch name
       version = getVersionFromPackageJson();
       
       if (version) {
         core.info(`Auto-detected version from package.json: ${version.major}.${version.minor}.${version.patch}`);
+        
+        // Auto-increment patch version if patch is 0
+        if (version.patch === 0 && createTags && token) {
+          const octokit = github.getOctokit(token);
+          const { owner, repo } = context.repo;
+          version.patch = await getNextPatchVersion(octokit, owner, repo, version.major, version.minor);
+          core.info(`Auto-incremented patch version to: ${version.patch}`);
+        }
       } else {
         // Fall back to branch name
         version = getVersionFromBranchName(branchName, releaseBranchPattern);

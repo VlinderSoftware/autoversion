@@ -45,7 +45,7 @@ outputs:
     description: 'The full semantic version tag (e.g., v1.0.0)'
 
 runs:
-  using: 'node20'
+  using: 'node22'
   main: 'dist/index.js'
 
 branding:
