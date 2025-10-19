@@ -1,0 +1,92 @@
+name: Autoversion Release
+
+on:
+  workflow_call:
+    inputs:
+      release-branch-pattern:
+        description: 'Pattern to match release branches (e.g., release/v*)'
+        type: string
+        required: false
+        default: 'release/v*'
+      version-source:
+        description: 'Source of version information: auto, package.json, or manual'
+        type: string
+        required: false
+        default: 'auto'
+      major-version:
+        description: 'Major version number (used when version-source is manual)'
+        type: string
+        required: false
+      minor-version:
+        description: 'Minor version number (used when version-source is manual)'
+        type: string
+        required: false
+      patch-version:
+        description: 'Patch version number (used when version-source is manual)'
+        type: string
+        required: false
+      tag-prefix:
+        description: 'Prefix for version tags (e.g., v for v1.0.0)'
+        type: string
+        required: false
+        default: 'v'
+    secrets:
+      github-token:
+        description: 'GitHub token for creating tags'
+        required: false
+    outputs:
+      version:
+        description: 'The full semantic version (e.g., 1.0.0)'
+        value: ${{ jobs.autoversion.outputs.version }}
+      tags:
+        description: 'Comma-separated list of tags created/updated'
+        value: ${{ jobs.autoversion.outputs.tags }}
+      major-tag:
+        description: 'The major version tag (e.g., v1)'
+        value: ${{ jobs.autoversion.outputs.major-tag }}
+      minor-tag:
+        description: 'The minor version tag (e.g., v1.0)'
+        value: ${{ jobs.autoversion.outputs.minor-tag }}
+      patch-tag:
+        description: 'The full semantic version tag (e.g., v1.0.0)'
+        value: ${{ jobs.autoversion.outputs.patch-tag }}
+
+jobs:
+  autoversion:
+    name: Create Version Tags
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tags: ${{ steps.version.outputs.tags }}
+      major-tag: ${{ steps.version.outputs.major-tag }}
+      minor-tag: ${{ steps.version.outputs.minor-tag }}
+      patch-tag: ${{ steps.version.outputs.patch-tag }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Run Autoversion Action
+        id: version
+        uses: VlinderSoftware/autoversion@v1
+        with:
+          release-branch-pattern: ${{ inputs.release-branch-pattern }}
+          version-source: ${{ inputs.version-source }}
+          major-version: ${{ inputs.major-version }}
+          minor-version: ${{ inputs.minor-version }}
+          patch-version: ${{ inputs.patch-version }}
+          tag-prefix: ${{ inputs.tag-prefix }}
+          github-token: ${{ secrets.github-token || secrets.GITHUB_TOKEN }}
+      
+      - name: Summary
+        run: |
+          echo "## 🏷️ Version Tags Created" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
+          echo "- ${{ steps.version.outputs.major-tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- ${{ steps.version.outputs.minor-tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- ${{ steps.version.outputs.patch-tag }}" >> $GITHUB_STEP_SUMMARY
