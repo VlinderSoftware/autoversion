@@ -94,7 +94,7 @@ The action supports multiple version sources (controlled by `version-source` inp
 | `minor-version` | Minor version (when version-source is `manual`) | No | - |
 | `patch-version` | Patch version (when version-source is `manual`) | No | - |
 | `tag-prefix` | Prefix for version tags | No | `v` |
-| `github-token` | GitHub token for creating tags | No | `${{ github.token }}` |
+| `github-token` | GitHub token for creating tags | Yes | - |
 
 ## Outputs
 

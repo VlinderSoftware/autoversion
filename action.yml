@@ -26,8 +26,7 @@ inputs:
     default: 'v'
   github-token:
     description: 'GitHub token for creating tags'
-    required: false
-    default: ${{ github.token }}
+    required: true
 
 outputs:
   version:
