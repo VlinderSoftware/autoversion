@@ -1,11 +1,25 @@
 const { Given, When, Then, Before, After } = require('@cucumber/cucumber');
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
+const Module = require('module');
 
-// Mock modules
-let mockCore, mockGithub, mockFs, mockPath;
+// Test context
 let testContext = {};
+let originalRequire;
+let mockModules = {};
+
+// Helper to create simple mock functions
+function createMockFn(impl) {
+  const fn = function(...args) {
+    fn.calls.push(args);
+    return impl ? impl(...args) : undefined;
+  };
+  fn.calls = [];
+  fn.mockImplementation = (newImpl) => {
+    impl = newImpl;
+    return fn;
+  };
+  return fn;
+}
 
 Before(function() {
   // Reset test context
@@ -29,22 +43,22 @@ Before(function() {
   };
 
   // Setup mocks
-  mockCore = {
-    getInput: jest.fn((name) => testContext.actionInputs[name] || ''),
-    setOutput: jest.fn((name, value) => {
+  const mockCore = {
+    getInput: createMockFn((name) => testContext.actionInputs[name] || ''),
+    setOutput: createMockFn((name, value) => {
       testContext.actionOutputs[name] = value;
     }),
-    setFailed: jest.fn((message) => {
+    setFailed: createMockFn((message) => {
       testContext.actionFailed = true;
       testContext.failureMessage = message;
     }),
-    info: jest.fn(),
-    warning: jest.fn(),
-    debug: jest.fn(),
-    error: jest.fn()
+    info: createMockFn(),
+    warning: createMockFn(),
+    debug: createMockFn(),
+    error: createMockFn()
   };
 
-  mockGithub = {
+  const mockGithub = {
     context: {
       ref: `refs/heads/${testContext.branchName}`,
       sha: testContext.currentSha,
@@ -53,27 +67,29 @@ Before(function() {
         repo: 'test-repo'
       }
     },
-    getOctokit: jest.fn(() => ({
+    getOctokit: createMockFn(() => ({
       rest: {
         repos: {
-          listTags: jest.fn(async () => ({
+          listTags: createMockFn(async () => ({
             data: testContext.existingTags.map(tag => ({ name: tag }))
           }))
         },
         git: {
-          getRef: jest.fn(async ({ ref }) => {
+          getRef: createMockFn(async ({ ref }) => {
             const tagName = ref.replace('tags/', '');
             if (testContext.existingTags.includes(tagName)) {
               return { data: { object: { sha: 'old-sha' } } };
             }
-            throw { status: 404 };
+            const error = new Error('Not found');
+            error.status = 404;
+            throw error;
           }),
-          createRef: jest.fn(async ({ ref, sha }) => {
+          createRef: createMockFn(async ({ ref, sha }) => {
             const tagName = ref.replace('refs/tags/', '');
             testContext.createdTags.push(tagName);
             return {};
           }),
-          updateRef: jest.fn(async ({ ref, sha }) => {
+          updateRef: createMockFn(async ({ ref, sha }) => {
             const tagName = ref.replace('tags/', '');
             testContext.updatedTags.push(tagName);
             return {};
@@ -83,11 +99,11 @@ Before(function() {
     }))
   };
 
-  mockFs = {
-    existsSync: jest.fn((filePath) => {
+  const mockFs = {
+    existsSync: createMockFn((filePath) => {
       return testContext.packageJsonVersion !== null;
     }),
-    readFileSync: jest.fn((filePath) => {
+    readFileSync: createMockFn((filePath, encoding) => {
       if (testContext.packageJsonVersion) {
         return JSON.stringify({ version: testContext.packageJsonVersion });
       }
@@ -95,34 +111,66 @@ Before(function() {
     })
   };
 
-  mockPath = {
-    join: jest.fn((...args) => args.join('/'))
+  const mockPath = {
+    join: createMockFn((...args) => args.join('/'))
+  };
+
+  // Store mocks
+  mockModules = {
+    '@actions/core': mockCore,
+    '@actions/github': mockGithub,
+    'fs': mockFs,
+    'path': mockPath
+  };
+
+  // Override require
+  originalRequire = Module.prototype.require;
+  Module.prototype.require = function(id) {
+    if (mockModules[id]) {
+      return mockModules[id];
+    }
+    return originalRequire.apply(this, arguments);
   };
 
   // Mock process.cwd
-  global.process.cwd = jest.fn(() => '/test/dir');
-
-  // Mock modules
-  jest.mock('@actions/core', () => mockCore);
-  jest.mock('@actions/github', () => mockGithub);
-  jest.mock('fs', () => mockFs);
-  jest.mock('path', () => mockPath);
+  if (!process.cwd._original) {
+    process.cwd._original = process.cwd;
+  }
+  process.cwd = () => '/test/dir';
 });
 
 After(function() {
-  jest.resetModules();
-  jest.clearAllMocks();
+  // Restore original require
+  if (originalRequire) {
+    Module.prototype.require = originalRequire;
+  }
+  
+  // Restore process.cwd
+  if (process.cwd._original) {
+    process.cwd = process.cwd._original;
+  }
+  
+  // Clear module cache
+  Object.keys(require.cache).forEach(key => {
+    if (key.includes('src/index.js')) {
+      delete require.cache[key];
+    }
+  });
+  
+  // Reset context
+  testContext = {};
+  mockModules = {};
 });
 
 // Given steps
 Given('I am on a release branch', function() {
   testContext.branchName = 'release/v1';
-  mockGithub.context.ref = `refs/heads/${testContext.branchName}`;
+  mockModules['@actions/github'].context.ref = `refs/heads/${testContext.branchName}`;
 });
 
 Given('I am on release branch {string}', function(branchName) {
   testContext.branchName = branchName;
-  mockGithub.context.ref = `refs/heads/${branchName}`;
+  mockModules['@actions/github'].context.ref = `refs/heads/${branchName}`;
 });
 
 Given('package.json has version {string}', function(version) {
@@ -153,24 +201,43 @@ Given('no tags exist for {string}', function(pattern) {
 
 // When steps
 When('I run the autoversion action', async function() {
+  // Clear module cache to force reload with mocks
+  Object.keys(require.cache).forEach(key => {
+    if (key.includes('src/index.js')) {
+      delete require.cache[key];
+    }
+  });
+  
   const { run } = require('../../src/index.js');
   await run();
 });
 
 When('I run the autoversion action with version-source {string}', async function(versionSource) {
   testContext.actionInputs['version-source'] = versionSource;
-  mockCore.getInput = jest.fn((name) => testContext.actionInputs[name] || '');
+  mockModules['@actions/core'].getInput.mockImplementation((name) => testContext.actionInputs[name] || '');
   
-  jest.resetModules();
+  // Clear module cache
+  Object.keys(require.cache).forEach(key => {
+    if (key.includes('src/index.js')) {
+      delete require.cache[key];
+    }
+  });
+  
   const { run } = require('../../src/index.js');
   await run();
 });
 
 When('I run the autoversion action with create-tags {string}', async function(createTags) {
   testContext.actionInputs['create-tags'] = createTags;
-  mockCore.getInput = jest.fn((name) => testContext.actionInputs[name] || '');
+  mockModules['@actions/core'].getInput.mockImplementation((name) => testContext.actionInputs[name] || '');
   
-  jest.resetModules();
+  // Clear module cache
+  Object.keys(require.cache).forEach(key => {
+    if (key.includes('src/index.js')) {
+      delete require.cache[key];
+    }
+  });
+  
   const { run } = require('../../src/index.js');
   await run();
 });
@@ -181,12 +248,12 @@ Then('the action should fail', function() {
 });
 
 Then('the error should mention that tag {string} already exists', function(tagName) {
-  assert.ok(testContext.failureMessage.includes(tagName), `Error message should contain tag name ${tagName}`);
-  assert.ok(testContext.failureMessage.toLowerCase().includes('exists'), 'Error message should mention "exists"');
+  assert.ok(testContext.failureMessage && testContext.failureMessage.includes(tagName), `Error message should contain tag name ${tagName}`);
+  assert.ok(testContext.failureMessage && testContext.failureMessage.toLowerCase().includes('exists'), 'Error message should mention "exists"');
 });
 
 Then('the error should mention version mismatch between branch and package.json', function() {
-  const msg = testContext.failureMessage.toLowerCase();
+  const msg = testContext.failureMessage ? testContext.failureMessage.toLowerCase() : '';
   assert.ok(msg.match(/mismatch|match|version/), 'Error message should mention version mismatch');
 });
 
@@ -221,7 +288,7 @@ Then('the version output should be {string}', function(expectedVersion) {
 
 Then('the version should be determined from package.json', function() {
   // Check that package.json was read
-  assert.ok(mockFs.readFileSync.mock.calls.length > 0, 'package.json should have been read');
+  assert.ok(mockModules['fs'].readFileSync.calls.length > 0, 'package.json should have been read');
 });
 
 Then('the version should be determined from branch name', function() {
