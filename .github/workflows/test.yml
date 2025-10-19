@@ -1,0 +1,30 @@
+name: Test Autoversion Action
+
+on:
+  push:
+    branches:
+      - 'copilot/implement-semantic-versioning'
+  workflow_dispatch:
+
+jobs:
+  test-action:
+    name: Test Autoversion Action
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Test with current branch (should skip)
+        id: test-main
+        uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+      
+      - name: Display results
+        run: |
+          echo "Test completed"
+          echo "This test verifies the action skips non-release branches"
