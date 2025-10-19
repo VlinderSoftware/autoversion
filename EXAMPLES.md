@@ -229,3 +229,73 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 ```
+
+## Version-Only Mode for Separate Workflows
+
+### Use Case: Get Version for Build, Create Tags After Release
+
+```yaml
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - 'release/v*'
+
+jobs:
+  determine-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      major-tag: ${{ steps.version.outputs.major-tag }}
+      minor-tag: ${{ steps.version.outputs.minor-tag }}
+      patch-tag: ${{ steps.version.outputs.patch-tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Determine version (don't create tags yet)
+        id: version
+        uses: VlinderSoftware/autoversion@v1
+        with:
+          create-tags: false
+  
+  build-and-test:
+    needs: determine-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Build version ${{ needs.determine-version.outputs.version }}
+        run: |
+          echo "Building ${{ needs.determine-version.outputs.version }}"
+          # npm version ${{ needs.determine-version.outputs.version }} --no-git-tag-version
+          # npm run build
+          # npm test
+  
+  create-release:
+    needs: [determine-version, build-and-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Create version tags
+        uses: VlinderSoftware/autoversion@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ needs.determine-version.outputs.patch-tag }}
+          release_name: Release ${{ needs.determine-version.outputs.version }}
+          draft: false
+          prerelease: false
+```
+
+This pattern ensures that tags are only created after successful build and test, preventing pollution of the tag namespace with broken releases.

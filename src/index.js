@@ -141,10 +141,11 @@ async function run() {
     const releaseBranchPattern = core.getInput('release-branch-pattern') || 'release/v*';
     const versionSource = core.getInput('version-source') || 'auto';
     const tagPrefix = core.getInput('tag-prefix') || 'v';
-    const token = core.getInput('github-token', { required: true });
+    const createTags = core.getInput('create-tags') !== 'false';
+    const token = core.getInput('github-token');
     
-    if (!token) {
-      core.setFailed('github-token is required to create tags');
+    if (createTags && !token) {
+      core.setFailed('github-token is required when create-tags is true');
       return;
     }
     
@@ -154,6 +155,7 @@ async function run() {
     
     core.info(`Current branch: ${currentBranch}`);
     core.info(`Version source: ${versionSource}`);
+    core.info(`Create tags: ${createTags}`);
     
     // Check if we're on a release branch
     const branchName = currentBranch.replace('refs/heads/', '');
@@ -194,7 +196,7 @@ async function run() {
           core.info(`Auto-detected version from branch name: ${version.major}.${version.minor}.${version.patch}`);
           
           // If patch is 0 from branch name, get next patch version
-          if (version.patch === 0) {
+          if (version.patch === 0 && createTags && token) {
             const octokit = github.getOctokit(token);
             const { owner, repo } = context.repo;
             version.patch = await getNextPatchVersion(octokit, owner, repo, version.major, version.minor);
@@ -207,28 +209,33 @@ async function run() {
       }
     }
     
-    // Create tags
-    const octokit = github.getOctokit(token);
-    const { owner, repo } = context.repo;
-    const sha = context.sha;
-    
+    // Prepare tag names
     const majorTag = `${tagPrefix}${version.major}`;
     const minorTag = `${tagPrefix}${version.major}.${version.minor}`;
     const patchTag = `${tagPrefix}${version.major}.${version.minor}.${version.patch}`;
     
     const createdTags = [];
     
-    // Create/update tags
-    if (await createOrUpdateTag(octokit, owner, repo, majorTag, sha, `Release ${majorTag}`)) {
-      createdTags.push(majorTag);
-    }
-    
-    if (await createOrUpdateTag(octokit, owner, repo, minorTag, sha, `Release ${minorTag}`)) {
-      createdTags.push(minorTag);
-    }
-    
-    if (await createOrUpdateTag(octokit, owner, repo, patchTag, sha, `Release ${patchTag}`)) {
-      createdTags.push(patchTag);
+    // Create tags if requested
+    if (createTags) {
+      const octokit = github.getOctokit(token);
+      const { owner, repo } = context.repo;
+      const sha = context.sha;
+      
+      // Create/update tags
+      if (await createOrUpdateTag(octokit, owner, repo, majorTag, sha, `Release ${majorTag}`)) {
+        createdTags.push(majorTag);
+      }
+      
+      if (await createOrUpdateTag(octokit, owner, repo, minorTag, sha, `Release ${minorTag}`)) {
+        createdTags.push(minorTag);
+      }
+      
+      if (await createOrUpdateTag(octokit, owner, repo, patchTag, sha, `Release ${patchTag}`)) {
+        createdTags.push(patchTag);
+      }
+      
+      core.info(`✅ Successfully created/updated tags: ${createdTags.join(', ')}`);
     }
     
     // Set outputs
@@ -239,12 +246,21 @@ async function run() {
     core.setOutput('minor-tag', minorTag);
     core.setOutput('patch-tag', patchTag);
     
-    core.info(`✅ Successfully created/updated tags: ${createdTags.join(', ')}`);
-    core.info(`Version: ${versionString}`);
+    if (createTags) {
+      core.info(`Version: ${versionString}`);
+    } else {
+      core.info(`✅ Version determined (tags not created): ${versionString}`);
+    }
     
   } catch (error) {
     core.setFailed(`Action failed: ${error.message}`);
   }
 }
 
-run();
+// Export for testing
+module.exports = { run };
+
+// Only run if this is the main module (not being imported for tests)
+if (require.main === module) {
+  run();
+}

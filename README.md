@@ -9,6 +9,7 @@ A GitHub Action to automatically tag and version software using semantic version
 - 📦 **Node.js integration** - Automatically reads version from package.json
 - 🌿 **Release branch support** - Works with release branches (e.g., release/v1, release/v2.1)
 - ⚙️ **Flexible configuration** - Multiple version sources: auto-detection, package.json, or manual
+- 🔍 **Version-only mode** - Can return version information without creating tags for use in separate workflows
 
 ## Usage
 
@@ -94,7 +95,8 @@ The action supports multiple version sources (controlled by `version-source` inp
 | `minor-version` | Minor version (when version-source is `manual`) | No | - |
 | `patch-version` | Patch version (when version-source is `manual`) | No | - |
 | `tag-prefix` | Prefix for version tags | No | `v` |
-| `github-token` | GitHub token for creating tags | Yes | - |
+| `create-tags` | Whether to create/update tags (set to `false` to only return version) | No | `true` |
+| `github-token` | GitHub token for creating tags (required only when `create-tags` is `true`) | No | - |
 
 ## Outputs
 
@@ -187,6 +189,62 @@ jobs:
 ```
 
 This will create tags like `version-1`, `version-1.0`, `version-1.0.0`.
+
+### Version-Only Mode (For Separate Release Workflows)
+
+```yaml
+name: Build
+
+on:
+  push:
+    branches:
+      - 'release/v*'
+
+jobs:
+  get-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.autoversion.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Get version (without creating tags)
+        id: autoversion
+        uses: VlinderSoftware/autoversion@v1
+        with:
+          create-tags: false
+      
+      - name: Display version
+        run: echo "Building version ${{ steps.autoversion.outputs.version }}"
+  
+  build:
+    needs: get-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Build with version ${{ needs.get-version.outputs.version }}
+        run: |
+          echo "Building version ${{ needs.get-version.outputs.version }}"
+          # Your build commands here
+  
+  release:
+    needs: [get-version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Create tags
+        uses: VlinderSoftware/autoversion@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+This pattern allows you to determine the version once, use it throughout your workflow for building and testing, and then create the tags in a separate job after everything succeeds.
 
 ## License
 
