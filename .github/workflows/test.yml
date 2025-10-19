@@ -2,8 +2,7 @@ name: Test Autoversion Action
 
 on:
   push:
-    branches:
-      - 'copilot/implement-semantic-versioning'
+  pull_request:
   workflow_dispatch:
 
 jobs:
