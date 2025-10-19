@@ -1,0 +1,128 @@
+name: Reusable Node.js Coverage Validation
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: "Node.js version to use"
+        required: false
+        type: string
+        default: "22"
+      working-directory:
+        description: "Working directory for test operations"
+        required: true
+        type: string
+      test-command:
+        description: "NPM test command to run"
+        required: false
+        type: string
+        default: "npm run test:coverage"
+      coverage-file:
+        description: "Path to the coverage XML file relative to working directory"
+        required: false
+        type: string
+        default: "coverage/clover.xml"
+      coverage-minimum:
+        description: "Minimum coverage percentage required"
+        required: false
+        type: string
+        default: "95"
+      setup-github-packages:
+        description: "Whether to configure GitHub Packages authentication"
+        required: false
+        type: boolean
+        default: false
+      environment-vars:
+        description: "JSON object containing environment variables for tests"
+        required: false
+        type: string
+        default: "{}"
+      runner-type:
+        description: "Type of runner to use"
+        required: false
+        type: string
+        default: "ubuntu-latest"
+    secrets:
+      PRIVATE_NPM_TOKEN:
+        description: "Token for GitHub Packages authentication"
+        required: false
+      AWS_ACCESS_KEY_ID:
+        description: "AWS Access Key ID for tests"
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        description: "AWS Secret Access Key for tests"
+        required: false
+
+jobs:
+  validate-coverage:
+    runs-on: ${{ inputs.runner-type }}
+    name: Run Tests and Validate Coverage
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Parse and set environment variables
+        if: ${{ inputs.environment-vars != '{}' }}
+        shell: bash
+        run: |
+          # Write JSON to a temporary file to handle multiline values safely
+          cat > /tmp/env_vars_raw.json << 'ENV_VARS_EOF'
+          ${{ inputs.environment-vars }}
+          ENV_VARS_EOF
+
+          # Clean up the raw JSON by removing control characters that break JSON syntax
+          # This fixes issues with GitHub variables containing trailing newlines
+          tr -d '\000-\037' < /tmp/env_vars_raw.json > /tmp/env_vars.json
+
+          # Parse JSON and export environment variables
+          while IFS='=' read -r key value; do
+            if [[ -n "$key" && -n "$value" ]]; then
+              echo "Setting $key=$value"
+              echo "$key=$value" >> $GITHUB_ENV
+            fi
+          done < <(jq -r 'to_entries[] | "\(.key)=\(.value)"' /tmp/env_vars.json)
+
+          echo "✅ Environment variables configured from JSON input"
+
+      - name: Configure .npmrc for GitHub Packages
+        if: ${{ inputs.setup-github-packages }}
+        shell: bash
+        run: |
+          echo "//npm.pkg.github.com/:_authToken=${{ secrets.PRIVATE_NPM_TOKEN }}" > ~/.npmrc
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run tests with coverage
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: ${{ inputs.test-command }}
+
+      - name: Validate coverage
+        uses: vlindersoftware/validate-coverage@v1
+        with:
+          coverage-file: ${{ inputs.coverage-file }}
+          minimum-coverage: ${{ inputs.coverage-minimum }}
+          coverage-type: "clover"
+          working-directory: ${{ inputs.working-directory }}
+
+      - name: Create sanitized directory name for artifact
+        id: sanitize
+        run: echo "dir_name=$(echo '${{ inputs.working-directory }}' | tr '/' '-')" >> $GITHUB_OUTPUT
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report-${{ steps.sanitize.outputs.dir_name }}-${{ github.run_id }}
+          path: ${{ inputs.working-directory }}/${{ inputs.coverage-file }}

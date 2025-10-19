@@ -1,0 +1,53 @@
+name: 'Autoversion'
+description: 'Automatically tag and version software using semantic versioning on release branches'
+author: 'VlinderSoftware'
+
+inputs:
+  release-branch-pattern:
+    description: 'Pattern to match release branches (e.g., release/v*)'
+    required: false
+    default: 'release/v*'
+  version-source:
+    description: 'Source of version information: auto, package.json, or manual'
+    required: false
+    default: 'auto'
+  major-version:
+    description: 'Major version number (used when version-source is manual)'
+    required: false
+  minor-version:
+    description: 'Minor version number (used when version-source is manual)'
+    required: false
+  patch-version:
+    description: 'Patch version number (used when version-source is manual)'
+    required: false
+  tag-prefix:
+    description: 'Prefix for version tags (e.g., v for v1.0.0)'
+    required: false
+    default: 'v'
+  create-tags:
+    description: 'Whether to create/update tags (set to false to only return version)'
+    required: false
+    default: 'true'
+  github-token:
+    description: 'GitHub token for creating tags (required only when create-tags is true)'
+    required: false
+
+outputs:
+  version:
+    description: 'The full semantic version (e.g., 1.0.0)'
+  tags:
+    description: 'Comma-separated list of tags created/updated'
+  major-tag:
+    description: 'The major version tag (e.g., v1)'
+  minor-tag:
+    description: 'The minor version tag (e.g., v1.0)'
+  patch-tag:
+    description: 'The full semantic version tag (e.g., v1.0.0)'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
+
+branding:
+  icon: 'tag'
+  color: 'blue'

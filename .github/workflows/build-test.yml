@@ -1,0 +1,49 @@
+name: Build and Test
+
+on:
+  push:
+    branches:
+      - main
+      - 'copilot/**'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run linter
+        run: npm run lint
+        continue-on-error: true
+      
+      - name: Build action
+        run: npm run build
+      
+      - name: Check for uncommitted changes
+        run: |
+          git diff --exit-code dist/ || (echo "::error::Built files are out of sync. Please run 'npm run build' and commit the changes." && exit 1)
+
+  test:
+    name: Test and Validate Coverage
+    uses: ./.github/workflows/_node_build_and_test.yml
+    with:
+      working-directory: "."
+      node-version: "22"
+      test-command: "npm test && npm run test:cucumber"
+      coverage-file: "coverage/cobertura-coverage.xml"
+      coverage-minimum: "95"
