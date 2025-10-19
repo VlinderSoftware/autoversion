@@ -34,12 +34,17 @@
     "collectCoverageFrom": [
       "src/**/*.js"
     ],
+    "coverageReporters": [
+      "text",
+      "lcov",
+      "cobertura"
+    ],
     "coverageThreshold": {
       "global": {
-        "branches": 41,
+        "branches": 45,
         "functions": 100,
-        "lines": 61,
-        "statements": 61
+        "lines": 63,
+        "statements": 63
       }
     }
   }
