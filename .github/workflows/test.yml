@@ -5,9 +5,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   test-action:
     name: Test Autoversion Action
@@ -30,48 +27,3 @@ jobs:
         run: |
           echo "Test completed"
           echo "This test verifies the action skips non-release branches"
-
-  rebuild-and-commit:
-    name: Rebuild dist and commit changes
-    runs-on: ubuntu-latest
-    # Only run on workflow_dispatch and only on main or copilot branches
-    if: |
-      github.event_name == 'workflow_dispatch' &&
-      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/copilot/'))
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run linter
-        run: npm run lint
-        continue-on-error: true
-
-      - name: Run tests
-        run: npm run test:all
-
-      - name: Build action
-        run: npm run build
-
-      - name: Commit dist changes
-        run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add dist/
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "chore: rebuild dist"
-            git push
-          fi
