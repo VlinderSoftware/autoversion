@@ -1,6 +1,35 @@
 name: Autoversion Release
 
 on:
+  workflow_dispatch:
+    inputs:
+      release-branch-pattern:
+        description: 'Pattern to match release branches (e.g., release/v*)'
+        type: string
+        required: false
+        default: 'release/v*'
+      version-source:
+        description: 'Source of version information: auto, package.json, or manual'
+        type: string
+        required: false
+        default: 'auto'
+      major-version:
+        description: 'Major version number (used when version-source is manual)'
+        type: string
+        required: false
+      minor-version:
+        description: 'Minor version number (used when version-source is manual)'
+        type: string
+        required: false
+      patch-version:
+        description: 'Patch version number (used when version-source is manual)'
+        type: string
+        required: false
+      tag-prefix:
+        description: 'Prefix for version tags (e.g., v for v1.0.0)'
+        type: string
+        required: false
+        default: 'v'
   workflow_call:
     inputs:
       release-branch-pattern:
