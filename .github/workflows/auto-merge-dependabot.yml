@@ -10,20 +10,70 @@ permissions:
   pull-requests: write
 
 jobs:
+  rebuild-and-commit:
+    name: Rebuild dist and commit changes
+    runs-on: ubuntu-latest
+
+    # Only run on Dependabot PRs where the last commit is from Dependabot
+    # (not from github-actions bot that rebuilt dist)
+    if: |
+      github.actor == 'dependabot[bot]' &&
+      github.event.pull_request.head.user.login == 'dependabot[bot]'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Run tests
+        run: npm run test:all
+
+      - name: Build action
+        run: npm run build
+
+      - name: Commit dist changes
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add dist/
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: rebuild dist after dependency update"
+            git push
+          fi
+
   auto-merge:
     name: Auto-merge minor dependency updates
     runs-on: ubuntu-latest
-    
-    # Only run on Dependabot PRs
-    if: github.actor == 'dependabot[bot]'
-    
+
+    # Only run after dist has been rebuilt (when last commit author is github-actions)
+    if: |
+      github.actor == 'dependabot[bot]' &&
+      github.event.pull_request.head.user.login != 'dependabot[bot]'
+
     steps:
       - name: Fetch Dependabot metadata
         id: dependabot-metadata
         uses: dependabot/fetch-metadata@v2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Auto-merge minor and patch updates
         if: |
           steps.dependabot-metadata.outputs.update-type == 'version-update:semver-minor' ||
@@ -34,7 +84,7 @@ jobs:
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Comment on major updates
         if: steps.dependabot-metadata.outputs.update-type == 'version-update:semver-major'
         run: |
