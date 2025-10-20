@@ -24,7 +24,7 @@
     "@actions/github": "^6.0.0"
   },
   "devDependencies": {
-    "@cucumber/cucumber": "^10.3.1",
+    "@cucumber/cucumber": "^12.2.0",
     "@vercel/ncc": "^0.38.1",
     "eslint": "^9.38.0",
     "jest": "^30.2.0"
