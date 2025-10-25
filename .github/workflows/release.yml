@@ -1,0 +1,141 @@
+name: Release
+
+on:
+  push:
+    branches: [main, 'release/v*']
+  pull_request:
+    branches: [main, 'release/v*']
+    types: [closed]
+
+jobs:
+  version:
+    name: Version and Release
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/v'))) ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true && 
+       (github.event.pull_request.head.ref == 'main' || startsWith(github.event.pull_request.head.ref, 'release/v')) &&
+       github.actor == 'dependabot[bot]')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Auto Version
+        id: version
+        uses: VlinderSoftware/autoversion@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          tag-prefix: 'v'
+
+      - name: Create Release Branch
+        if: steps.version.outputs.patch-tag != '' && github.ref == 'refs/heads/main'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          MAJOR_VERSION=$(echo $VERSION | cut -d. -f1)
+          RELEASE_BRANCH="release/v${MAJOR_VERSION}"
+          
+          # Check if release branch already exists
+          if git show-ref --verify --quiet refs/remotes/origin/$RELEASE_BRANCH; then
+            echo "Release branch $RELEASE_BRANCH already exists, updating it"
+            git checkout $RELEASE_BRANCH
+            git reset --hard main
+            git push origin $RELEASE_BRANCH --force
+          else
+            echo "Creating new release branch $RELEASE_BRANCH"
+            git checkout -b $RELEASE_BRANCH
+            git push origin $RELEASE_BRANCH
+          fi
+
+      - name: Create GitHub Release
+        if: steps.version.outputs.patch-tag != ''
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.version.outputs.patch-tag }}
+          release_name: ${{ steps.version.outputs.patch-tag }}
+          body: |
+            ## Changes
+            
+            Automated release for version ${{ steps.version.outputs.version }}
+            
+            ## Usage
+            
+            ```yaml
+            - name: Auto Version
+              uses: VlinderSoftware/autoversion@${{ steps.version.outputs.patch-tag }}
+              with:
+                github-token: ${{ '${{ secrets.GITHUB_TOKEN }}' }}
+                tag-prefix: 'v'
+            ```
+            
+            Or use the major version for automatic updates:
+            
+            ```yaml
+            - name: Auto Version
+              uses: VlinderSoftware/autoversion@v1
+              with:
+                github-token: ${{ '${{ secrets.GITHUB_TOKEN }}' }}
+                tag-prefix: 'v'
+            ```
+          draft: false
+          prerelease: false
+
+  validate:
+    name: Validate Action
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build distribution
+        run: npm run build
+
+      - name: Validate action.yml
+        run: |
+          # Check that action.yml exists and is valid YAML
+          if [ ! -f action.yml ]; then
+            echo "Error: action.yml not found"
+            exit 1
+          fi
+          
+          # Basic YAML validation using Node.js
+          node -e "
+            const yaml = require('js-yaml');
+            const fs = require('fs');
+            try {
+              yaml.safeLoad(fs.readFileSync('action.yml', 'utf8'));
+              console.log('✓ action.yml is valid YAML');
+            } catch (e) {
+              console.error('✗ action.yml is invalid YAML:', e.message);
+              process.exit(1);
+            }
+          "
+          
+          # Check required fields
+          if ! grep -q "name:" action.yml; then
+            echo "Error: action.yml missing 'name' field"
+            exit 1
+          fi
+          
+          if ! grep -q "description:" action.yml; then
+            echo "Error: action.yml missing 'description' field"
+            exit 1
+          fi
+          
+          echo "✓ action.yml has required fields"

@@ -1,21 +1,65 @@
 version: 2
 updates:
-  # Enable version updates for npm
+  # Enable version updates for npm on main branch
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
+    target-branch: "main"
     open-pull-requests-limit: 10
+    versioning-strategy: "increase-if-necessary"
     labels:
       - "dependencies"
       - "npm"
+    ignore:
+      # Ignore major version updates to prevent breaking changes
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     
-  # Enable version updates for GitHub Actions
+  # Enable version updates for npm on dev branch (if it exists)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    open-pull-requests-limit: 10
+    versioning-strategy: "increase-if-necessary"
+    labels:
+      - "dependencies"
+      - "npm"
+      - "dev-branch"
+    ignore:
+      # Ignore major version updates to prevent breaking changes
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    
+  # Enable version updates for GitHub Actions on main branch
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    target-branch: "main"
     open-pull-requests-limit: 10
     labels:
       - "dependencies"
       - "github-actions"
+    ignore:
+      # Ignore major version updates to prevent breaking changes
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # Enable version updates for GitHub Actions on dev branch (if it exists)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "github-actions"
+      - "dev-branch"
+    ignore:
+      # Ignore major version updates to prevent breaking changes
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
