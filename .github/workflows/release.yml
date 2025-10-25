@@ -29,9 +29,21 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           tag-prefix: 'v'
+        continue-on-error: true
+
+      - name: Check if version was created
+        id: check-version
+        run: |
+          if [ -n "${{ steps.version.outputs.patch-tag }}" ]; then
+            echo "version-created=true" >> $GITHUB_OUTPUT
+            echo "Version ${{ steps.version.outputs.patch-tag }} was created"
+          else
+            echo "version-created=false" >> $GITHUB_OUTPUT
+            echo "No new version was created"
+          fi
 
       - name: Create Release Branch
-        if: steps.version.outputs.patch-tag != '' && github.ref == 'refs/heads/main'
+        if: steps.check-version.outputs.version-created == 'true' && github.ref == 'refs/heads/main'
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           MAJOR_VERSION=$(echo $VERSION | cut -d. -f1)
@@ -50,7 +62,7 @@ jobs:
           fi
 
       - name: Create GitHub Release
-        if: steps.version.outputs.patch-tag != ''
+        if: steps.check-version.outputs.version-created == 'true'
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -119,7 +131,7 @@ jobs:
             const yaml = require('js-yaml');
             const fs = require('fs');
             try {
-              yaml.safeLoad(fs.readFileSync('action.yml', 'utf8'));
+              yaml.load(fs.readFileSync('action.yml', 'utf8'));
               console.log('✓ action.yml is valid YAML');
             } catch (e) {
               console.error('✗ action.yml is invalid YAML:', e.message);
