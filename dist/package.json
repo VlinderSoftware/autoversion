@@ -1,6 +1,6 @@
 {
   "name": "autoversion-action",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "GitHub Action to automatically tag and version software using semantic versioning",
   "main": "dist/index.js",
   "scripts": {
