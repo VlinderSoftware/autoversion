@@ -247,6 +247,10 @@ Then('the action should fail', function() {
   assert.strictEqual(testContext.actionFailed, true, 'Action should have failed');
 });
 
+Then('the action should succeed', function() {
+  assert.strictEqual(testContext.actionFailed, false, 'Action should have succeeded');
+});
+
 Then('the error should mention that tag {string} already exists', function(tagName) {
   assert.ok(testContext.failureMessage && testContext.failureMessage.includes(tagName), `Error message should contain tag name ${tagName}`);
   assert.ok(testContext.failureMessage && testContext.failureMessage.toLowerCase().includes('exists'), 'Error message should mention "exists"');

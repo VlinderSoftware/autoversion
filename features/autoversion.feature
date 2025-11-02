@@ -34,6 +34,14 @@ Feature: Autoversion Tag Management
     Then the action should fail
     And the error should mention version mismatch between branch and package.json
 
+  Scenario: Package.json with different minor version but branch has no minor - should succeed
+    Given I am on release branch "release/v1"
+    And package.json has version "1.1.0"
+    When I run the autoversion action with version-source "package.json"
+    Then the action should succeed
+    And tags "v1", "v1.1", and "v1.1.0" should be created
+    And all tags should point to the current commit
+
   Scenario: Successful first release from branch name
     Given I am on release branch "release/v1"
     And no tags exist

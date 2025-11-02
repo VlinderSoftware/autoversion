@@ -28,7 +28,7 @@ function getVersionFromPackageJson() {
 
 /**
  * Extract version from release branch name
- * e.g., release/v1 -> { major: 1, minor: 0, patch: 0 }
+ * e.g., release/v1 -> { major: 1, minor: 0, patch: 0, minorSpecified: false, patchSpecified: false }
  */
 function getVersionFromBranchName(branchName, _pattern) {
   // Remove refs/heads/ prefix if present
@@ -42,7 +42,9 @@ function getVersionFromBranchName(branchName, _pattern) {
     return {
       major: parseInt(match[1]) || 0,
       minor: parseInt(match[2]) || 0,
-      patch: parseInt(match[3]) || 0
+      patch: parseInt(match[3]) || 0,
+      minorSpecified: match[2] !== undefined,
+      patchSpecified: match[3] !== undefined
     };
   }
   
@@ -217,7 +219,8 @@ async function run() {
             core.setFailed(`Version mismatch: package.json has major version ${version.major} but release branch indicates v${branchVersion.major}`);
             return;
           }
-          if (branchVersion.minor !== 0 && branchVersion.minor !== version.minor) {
+          // Only validate minor version if it was explicitly specified in the branch name
+          if (branchVersion.minorSpecified && branchVersion.minor !== version.minor) {
             core.setFailed(`Version mismatch: package.json has minor version ${version.minor} but release branch indicates v${branchVersion.major}.${branchVersion.minor}`);
             return;
           }

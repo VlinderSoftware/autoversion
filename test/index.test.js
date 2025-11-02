@@ -286,6 +286,30 @@ describe('Autoversion Action', () => {
       expect(mockCore.setFailed).toHaveBeenCalledWith(expect.stringContaining('Version mismatch'));
     });
     
+    test('should NOT fail when branch has no minor version but package.json does', async () => {
+      // This tests the fix: release/v1 should not conflict with package.json 1.1.0
+      mockGithub.context.ref = 'refs/heads/release/v1';
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.1.0' }));
+      
+      mockCore.getInput.mockImplementation((name) => {
+        const defaults = {
+          'version-source': 'package.json',
+          'github-token': 'test-token',
+          'create-tags': 'true',
+          'release-branch-pattern': 'release/v*',
+          'tag-prefix': 'v'
+        };
+        return defaults[name] || '';
+      });
+      
+      await run();
+      
+      // Should succeed because release/v1 doesn't specify a minor version
+      expect(mockCore.setFailed).not.toHaveBeenCalled();
+      expect(mockCore.setOutput).toHaveBeenCalledWith('version', expect.stringMatching(/^1\.1\.\d+$/));
+    });
+
     test('should handle package.json read errors', async () => {
       mockGithub.context.ref = 'refs/heads/release/v1';
       fs.existsSync.mockReturnValue(true);
