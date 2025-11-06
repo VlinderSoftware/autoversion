@@ -9,19 +9,30 @@ const path = require('path');
 function getVersionFromPackageJson() {
   try {
     const packageJsonPath = path.join(process.cwd(), 'package.json');
+    core.info(`Looking for package.json at: ${packageJsonPath}`);
+    core.info(`Current working directory: ${process.cwd()}`);
+    
     if (fs.existsSync(packageJsonPath)) {
-      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+      const packageJsonContent = fs.readFileSync(packageJsonPath, 'utf8');
+      core.debug(`package.json content: ${packageJsonContent.substring(0, 200)}...`);
+      
+      const packageJson = JSON.parse(packageJsonContent);
       if (packageJson.version) {
+        core.info(`Found version in package.json: ${packageJson.version}`);
         const versionParts = packageJson.version.split('.');
         return {
           major: parseInt(versionParts[0]) || 0,
           minor: parseInt(versionParts[1]) || 0,
           patch: parseInt(versionParts[2]) || 0
         };
+      } else {
+        core.warning('package.json exists but has no version field');
       }
+    } else {
+      core.warning(`package.json not found at ${packageJsonPath}`);
     }
   } catch (error) {
-    core.debug(`Could not read package.json: ${error.message}`);
+    core.error(`Could not read package.json: ${error.message}`);
   }
   return null;
 }
