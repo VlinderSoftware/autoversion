@@ -29935,11 +29935,14 @@ const path = __nccwpck_require__(6928);
  */
 function getVersionFromPackageJson() {
   try {
-    const packageJsonPath = __nccwpck_require__.ab + "package.json";
+    // Use GitHub Actions workspace path or fallback to process.cwd()
+    const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
+    const packageJsonPath = path.join(workspaceDir, 'package.json');
     core.info(`Looking for package.json at: ${packageJsonPath}`);
+    core.info(`GITHUB_WORKSPACE: ${process.env.GITHUB_WORKSPACE}`);
     core.info(`Current working directory: ${process.cwd()}`);
     
-    if (fs.existsSync(__nccwpck_require__.ab + "package.json")) {
+    if (fs.existsSync(packageJsonPath)) {
       const packageJsonContent = fs.readFileSync(packageJsonPath, 'utf8');
       core.debug(`package.json content: ${packageJsonContent.substring(0, 200)}...`);
       
