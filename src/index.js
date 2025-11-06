@@ -11,9 +11,6 @@ function getVersionFromPackageJson() {
     // Use GitHub Actions workspace path or fallback to process.cwd()
     const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
     const packageJsonPath = path.join(workspaceDir, 'package.json');
-    core.info(`Looking for package.json at: ${packageJsonPath}`);
-    core.info(`GITHUB_WORKSPACE: ${process.env.GITHUB_WORKSPACE}`);
-    core.info(`Current working directory: ${process.cwd()}`);
     
     if (fs.existsSync(packageJsonPath)) {
       const packageJsonContent = fs.readFileSync(packageJsonPath, 'utf8');
@@ -21,7 +18,6 @@ function getVersionFromPackageJson() {
       
       const packageJson = JSON.parse(packageJsonContent);
       if (packageJson.version) {
-        core.info(`Found version in package.json: ${packageJson.version}`);
         const versionParts = packageJson.version.split('.');
         return {
           major: parseInt(versionParts[0]) || 0,
