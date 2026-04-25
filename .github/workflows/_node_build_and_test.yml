@@ -109,7 +109,7 @@ jobs:
         run: ${{ inputs.test-command }}
 
       - name: Validate coverage
-        uses: vlindersoftware/validate-coverage@v1
+        uses: vln-devsecops/actions-validate-coverage@v1
         with:
           coverage-file: ${{ inputs.coverage-file }}
           minimum-coverage: ${{ inputs.coverage-minimum }}
