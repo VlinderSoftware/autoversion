@@ -99,7 +99,7 @@ jobs:
       
       - name: Run Autoversion Action
         id: version
-        uses: VlinderSoftware/autoversion@v1
+        uses: vln-devsecops/actions-autoversion@v1
         with:
           release-branch-pattern: ${{ inputs.release-branch-pattern }}
           version-source: ${{ inputs.version-source }}

@@ -75,7 +75,7 @@ This document provides detailed examples of how the Autoversion action works in 
 ### Workflow Configuration
 ```yaml
 - name: Create version tags
-  uses: VlinderSoftware/autoversion@v1
+  uses: vln-devsecops/actions-autoversion@v1
   with:
     version-source: manual
     major-version: '3'
@@ -95,7 +95,7 @@ This document provides detailed examples of how the Autoversion action works in 
 ### Workflow Configuration
 ```yaml
 - name: Create version tags
-  uses: VlinderSoftware/autoversion@v1
+  uses: vln-devsecops/actions-autoversion@v1
   with:
     tag-prefix: 'release-'
 ```
@@ -148,7 +148,7 @@ jobs:
       
       - name: Create version tags
         id: version
-        uses: VlinderSoftware/autoversion@v1
+        uses: vln-devsecops/actions-autoversion@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       
@@ -178,7 +178,7 @@ jobs:
       
       - name: Create version tags
         id: version
-        uses: VlinderSoftware/autoversion@v1
+        uses: vln-devsecops/actions-autoversion@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       
@@ -219,7 +219,7 @@ jobs:
       
       - name: Create version tags
         id: version
-        uses: VlinderSoftware/autoversion@v1
+        uses: vln-devsecops/actions-autoversion@v1
         with:
           version-source: package.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -257,7 +257,7 @@ jobs:
       
       - name: Determine version (don't create tags yet)
         id: version
-        uses: VlinderSoftware/autoversion@v1
+        uses: vln-devsecops/actions-autoversion@v1
         with:
           create-tags: false
   
@@ -283,7 +283,7 @@ jobs:
           fetch-depth: 0
       
       - name: Create version tags
-        uses: VlinderSoftware/autoversion@v1
+        uses: vln-devsecops/actions-autoversion@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       

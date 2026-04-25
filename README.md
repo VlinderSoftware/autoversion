@@ -34,7 +34,7 @@ jobs:
           fetch-depth: 0
       
       - name: Create version tags
-        uses: VlinderSoftware/autoversion@v1
+        uses: vln-devsecops/actions-autoversion@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -53,7 +53,7 @@ on:
 
 jobs:
   version:
-    uses: VlinderSoftware/autoversion/.github/workflows/autoversion.yml@v1
+    uses: vln-devsecops/actions-autoversion/.github/workflows/autoversion.yml@v1
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -137,7 +137,7 @@ jobs:
           fetch-depth: 0
       
       - name: Create version tags
-        uses: VlinderSoftware/autoversion@v1
+        uses: vln-devsecops/actions-autoversion@v1
         with:
           version-source: package.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -162,7 +162,7 @@ jobs:
           fetch-depth: 0
       
       - name: Create version tags
-        uses: VlinderSoftware/autoversion@v1
+        uses: vln-devsecops/actions-autoversion@v1
         with:
           version-source: manual
           major-version: '2'
@@ -190,7 +190,7 @@ jobs:
           fetch-depth: 0
       
       - name: Create version tags
-        uses: VlinderSoftware/autoversion@v1
+        uses: vln-devsecops/actions-autoversion@v1
         with:
           tag-prefix: 'version-'
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -220,7 +220,7 @@ jobs:
       
       - name: Get version (without creating tags)
         id: autoversion
-        uses: VlinderSoftware/autoversion@v1
+        uses: vln-devsecops/actions-autoversion@v1
         with:
           create-tags: false
       
@@ -247,7 +247,7 @@ jobs:
           fetch-depth: 0
       
       - name: Create tags
-        uses: VlinderSoftware/autoversion@v1
+        uses: vln-devsecops/actions-autoversion@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 ```

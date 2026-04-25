@@ -6,7 +6,7 @@ Thank you for considering contributing to Autoversion! This document provides gu
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/VlinderSoftware/autoversion.git
+   git clone https://github.com/vln-devsecops/actions-autoversion.git
    cd autoversion
    ```
 
