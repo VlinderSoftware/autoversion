@@ -53,6 +53,9 @@ on:
         description: "AWS Secret Access Key for tests"
         required: false
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   validate-coverage:
     runs-on: ${{ inputs.runner-type }}
