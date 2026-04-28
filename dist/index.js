@@ -30257,9 +30257,16 @@ async function run() {
 }
 
 // Export for testing
-module.exports = { run };
+module.exports = {
+  getVersionFromPackageJson,
+  getVersionFromBranchName,
+  getNextPatchVersion,
+  createOrUpdateTag,
+  run
+};
 
 // Only run if this is the main module (not being imported for tests)
+/* istanbul ignore next */
 if (require.main === require.cache[eval('__filename')]) {
   run();
 }

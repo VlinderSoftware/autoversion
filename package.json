@@ -5,9 +5,10 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "ncc build src/index.js -o dist --source-map --license licenses.txt",
-    "test": "jest --coverage",
+    "test": "npm run test:unit",
+    "test:unit": "jest --coverage",
     "test:cucumber": "cucumber-js",
-    "test:all": "npm run test && npm run test:cucumber",
+    "test:all": "npm run test:unit && npm run test:cucumber",
     "test:watch": "jest --watch",
     "lint": "eslint src/**/*.js"
   },

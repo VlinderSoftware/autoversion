@@ -1,7 +1,5 @@
 const fs = require('fs');
-const path = require('path');
 
-// Mock @actions/core
 const mockCore = {
   getInput: jest.fn(),
   setOutput: jest.fn(),
@@ -12,7 +10,6 @@ const mockCore = {
   error: jest.fn()
 };
 
-// Mock @actions/github
 const mockGithub = {
   context: {
     ref: 'refs/heads/release/v1',
@@ -27,756 +24,397 @@ const mockGithub = {
 
 jest.mock('@actions/core', () => mockCore);
 jest.mock('@actions/github', () => mockGithub);
-
-// Mock fs for package.json reading
 jest.mock('fs');
-jest.mock('path');
 
-// Import run function once
-const { run } = require('../src/index.js');
+const {
+  getVersionFromPackageJson,
+  getVersionFromBranchName,
+  getNextPatchVersion,
+  createOrUpdateTag,
+  run
+} = require('../src/index.js');
 
 describe('Autoversion Action', () => {
-  let originalCwd;
-  
+  const defaultInputs = {
+    'release-branch-pattern': 'release/v*',
+    'version-source': 'auto',
+    'tag-prefix': 'v',
+    'create-tags': 'true',
+    'github-token': 'test-token',
+    'major-version': '',
+    'minor-version': '',
+    'patch-version': ''
+  };
+
+  let octokit;
+
+  const setInputs = (overrides = {}) => {
+    const inputs = { ...defaultInputs, ...overrides };
+    mockCore.getInput.mockImplementation((name) => inputs[name] ?? '');
+  };
+
+  const makeNotFoundError = () => {
+    const error = new Error('Not found');
+    error.status = 404;
+    return error;
+  };
+
   beforeEach(() => {
-    // Reset all mocks
     jest.clearAllMocks();
-    
-    // Mock process.cwd
-    originalCwd = process.cwd;
-    process.cwd = jest.fn().mockReturnValue('/test/dir');
-    
-    // Default mock implementations
-    mockCore.getInput.mockImplementation((name) => {
-      const defaults = {
-        'release-branch-pattern': 'release/v*',
-        'version-source': 'auto',
-        'tag-prefix': 'v',
-        'create-tags': 'true',
-        'github-token': 'test-token'
-      };
-      return defaults[name] || '';
-    });
-    
-    // Mock path.join to work like actual path joining
-    path.join.mockImplementation((...args) => args.join('/'));
-    
-    // Default: no package.json file exists
+
+    mockGithub.context.ref = 'refs/heads/release/v1';
+    mockGithub.context.sha = 'abc123def456';
+    mockGithub.context.repo = { owner: 'test-owner', repo: 'test-repo' };
+
     fs.existsSync.mockReturnValue(false);
     fs.readFileSync.mockReturnValue('{}');
-    
-    // Mock octokit
-    const mockOctokit = {
+    delete process.env.GITHUB_WORKSPACE;
+
+    octokit = {
       rest: {
         repos: {
           listTags: jest.fn().mockResolvedValue({ data: [] })
         },
         git: {
-          getRef: jest.fn().mockRejectedValue({ status: 404 }),
+          getRef: jest.fn().mockRejectedValue(makeNotFoundError()),
           createRef: jest.fn().mockResolvedValue({}),
           updateRef: jest.fn().mockResolvedValue({})
         }
       }
     };
-    
-    mockGithub.getOctokit.mockReturnValue(mockOctokit);
+
+    mockGithub.getOctokit.mockReturnValue(octokit);
+    setInputs();
   });
-  
-  afterEach(() => {
-    // Restore process.cwd
-    process.cwd = originalCwd;
-  });
-  
+
   describe('getVersionFromPackageJson', () => {
-    test('should read version from package.json', () => {
+    test('reads version from the GitHub workspace package.json', () => {
+      process.env.GITHUB_WORKSPACE = '/workspace';
       fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.2.3' }));
-      
-      // Import after mocks are set up
-      const { getVersionFromPackageJson } = require('../src/index.js');
-      
-      // Can't directly test the function as it's not exported
-      // This will be tested indirectly through integration tests
+      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '2.4.6' }));
+
+      expect(getVersionFromPackageJson()).toEqual({ major: 2, minor: 4, patch: 6 });
+      expect(fs.existsSync).toHaveBeenCalledWith('/workspace/package.json');
+      expect(mockCore.debug).toHaveBeenCalled();
+    });
+
+    test('returns null and warns when package.json has no version field', () => {
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({ name: 'autoversion-action' }));
+
+      expect(getVersionFromPackageJson()).toBeNull();
+      expect(mockCore.warning).toHaveBeenCalledWith('package.json exists but has no version field');
+    });
+
+    test('returns null and logs an error when package.json cannot be parsed', () => {
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue('{invalid json');
+
+      expect(getVersionFromPackageJson()).toBeNull();
+      expect(mockCore.error).toHaveBeenCalledWith(expect.stringContaining('Could not read package.json'));
     });
   });
-  
-  describe('Version determination from branch name', () => {
-    test('should extract version from release/v1 branch', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      fs.existsSync.mockReturnValue(false);
-      
-      await run();
-      
-      // Verify outputs were set
-      expect(mockCore.setOutput).toHaveBeenCalledWith('version', expect.stringMatching(/^1\.0\.\d+$/));
-      expect(mockCore.setOutput).toHaveBeenCalledWith('major-tag', 'v1');
-      expect(mockCore.setOutput).toHaveBeenCalledWith('minor-tag', 'v1.0');
+
+  describe('getVersionFromBranchName', () => {
+    test('parses major-only release branches', () => {
+      expect(getVersionFromBranchName('refs/heads/release/v3')).toEqual({
+        major: 3,
+        minor: 0,
+        patch: 0,
+        minorSpecified: false,
+        patchSpecified: false
+      });
     });
-    
-    test('should extract version from release/v2.1 branch', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v2.1';
-      fs.existsSync.mockReturnValue(false);
-      
-      await run();
-      
-      expect(mockCore.setOutput).toHaveBeenCalledWith('version', expect.stringMatching(/^2\.1\.\d+$/));
-      expect(mockCore.setOutput).toHaveBeenCalledWith('major-tag', 'v2');
-      expect(mockCore.setOutput).toHaveBeenCalledWith('minor-tag', 'v2.1');
+
+    test('parses release branches with explicit minor and patch versions', () => {
+      expect(getVersionFromBranchName('release/v3.4.5')).toEqual({
+        major: 3,
+        minor: 4,
+        patch: 5,
+        minorSpecified: true,
+        patchSpecified: true
+      });
+    });
+
+    test('returns null for non-release branches', () => {
+      expect(getVersionFromBranchName('feature/test-branch')).toBeNull();
     });
   });
-  
-  describe('create-tags option', () => {
-    test('should create tags when create-tags is true', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      fs.existsSync.mockReturnValue(false);
-      mockCore.getInput.mockImplementation((name) => {
-        if (name === 'create-tags') return 'true';
-        if (name === 'github-token') return 'test-token';
-        return '';
+
+  describe('getNextPatchVersion', () => {
+    test('returns the next patch version using the highest matching tag', async () => {
+      setInputs({ 'tag-prefix': 'release+' });
+      octokit.rest.repos.listTags.mockResolvedValue({
+        data: [
+          { name: 'release+1.2.0' },
+          { name: 'release+1.2.7' },
+          { name: 'release+1.3.0' }
+        ]
       });
-      
-      const mockOctokit = mockGithub.getOctokit();
-      
-      await run();
-      
-      // Verify tags were created
-      expect(mockOctokit.rest.git.createRef).toHaveBeenCalled();
+
+      await expect(getNextPatchVersion(octokit, 'test-owner', 'test-repo', 1, 2)).resolves.toBe(8);
     });
-    
-    test('should not create tags when create-tags is false', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      fs.existsSync.mockReturnValue(false);
-      
-      mockCore.getInput.mockImplementation((name) => {
-        if (name === 'create-tags') return 'false';
-        if (name === 'version-source') return 'auto';
-        if (name === 'tag-prefix') return 'v';
-        if (name === 'release-branch-pattern') return 'release/v*';
-        return '';
-      });
-      
-      const mockOctokit = mockGithub.getOctokit();
-      
-      await run();
-      
-      // Verify tags were not created
-      expect(mockOctokit.rest.git.createRef).not.toHaveBeenCalled();
-      expect(mockOctokit.rest.git.updateRef).not.toHaveBeenCalled();
-      
-      // But version should still be output
-      expect(mockCore.setOutput).toHaveBeenCalledWith('version', expect.stringMatching(/^1\.0\.\d+$/));
+
+    test('falls back to zero when listing tags fails', async () => {
+      octokit.rest.repos.listTags.mockRejectedValue(new Error('API unavailable'));
+
+      await expect(getNextPatchVersion(octokit, 'test-owner', 'test-repo', 1, 2)).resolves.toBe(0);
+      expect(mockCore.warning).toHaveBeenCalledWith(expect.stringContaining('Could not fetch existing tags'));
     });
-    
-    test('should fail when create-tags is true but no token provided', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      mockCore.getInput.mockImplementation((name) => {
-        if (name === 'create-tags') return 'true';
-        if (name === 'github-token') return '';
-        return '';
+  });
+
+  describe('createOrUpdateTag', () => {
+    test('creates a tag when it does not already exist', async () => {
+      await expect(createOrUpdateTag(octokit, 'test-owner', 'test-repo', 'v1.2.3', 'sha123')).resolves.toBe(true);
+
+      expect(octokit.rest.git.createRef).toHaveBeenCalledWith({
+        owner: 'test-owner',
+        repo: 'test-repo',
+        ref: 'refs/tags/v1.2.3',
+        sha: 'sha123'
       });
-      
+      expect(octokit.rest.git.updateRef).not.toHaveBeenCalled();
+    });
+
+    test('updates an existing tag in place', async () => {
+      octokit.rest.git.getRef.mockResolvedValue({ data: { object: { sha: 'old-sha' } } });
+
+      await expect(createOrUpdateTag(octokit, 'test-owner', 'test-repo', 'v1', 'sha123')).resolves.toBe(true);
+
+      expect(octokit.rest.git.updateRef).toHaveBeenCalledWith({
+        owner: 'test-owner',
+        repo: 'test-repo',
+        ref: 'tags/v1',
+        sha: 'sha123',
+        force: true
+      });
+      expect(octokit.rest.git.createRef).not.toHaveBeenCalled();
+    });
+
+    test('returns false when the GitHub API errors unexpectedly', async () => {
+      const error = new Error('API failure');
+      error.status = 500;
+      octokit.rest.git.getRef.mockRejectedValue(error);
+
+      await expect(createOrUpdateTag(octokit, 'test-owner', 'test-repo', 'v1', 'sha123')).resolves.toBe(false);
+      expect(mockCore.error).toHaveBeenCalledWith(expect.stringContaining('Failed to create/update tag v1'));
+    });
+  });
+
+  describe('run', () => {
+    test('fails fast when create-tags is true and no token is provided', async () => {
+      setInputs({ 'github-token': '' });
+
       await run();
-      
+
       expect(mockCore.setFailed).toHaveBeenCalledWith('github-token is required when create-tags is true');
+      expect(mockGithub.getOctokit).not.toHaveBeenCalled();
     });
-  });
-  
-  describe('Non-release branch handling', () => {
-    test('should skip versioning on non-release branch', async () => {
+
+    test('skips versioning outside release branches', async () => {
       mockGithub.context.ref = 'refs/heads/main';
-      
+
       await run();
-      
+
       expect(mockCore.warning).toHaveBeenCalledWith('Not on a release branch. Skipping versioning.');
       expect(mockCore.setOutput).not.toHaveBeenCalled();
     });
-  });
-  
-  describe('Version source - package.json', () => {
-    test('should use version from package.json when available', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.5.7' }));
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'version-source': 'package.json',
-          'github-token': 'test-token',
-          'create-tags': 'true',
-          'tag-prefix': 'v',
-          'release-branch-pattern': 'release/v*'
-        };
-        return defaults[name] || '';
+
+    test('returns version outputs without touching GitHub when create-tags is false', async () => {
+      setInputs({
+        'version-source': 'manual',
+        'major-version': '4',
+        'minor-version': '1',
+        'patch-version': '9',
+        'create-tags': 'false',
+        'github-token': ''
       });
-      
-      const mockOctokit = mockGithub.getOctokit();
-      mockOctokit.rest.git.getRef.mockRejectedValue({ status: 404 });
-      
+
       await run();
-      
-      // Check if there were any failures first
-      if (mockCore.setFailed.mock.calls.length > 0) {
-        console.log('setFailed was called with:', mockCore.setFailed.mock.calls);
-      }
-      
-      expect(mockCore.setOutput).toHaveBeenCalledWith('version', '1.5.7');
-      expect(mockCore.setOutput).toHaveBeenCalledWith('major-tag', 'v1');
-      expect(mockCore.setOutput).toHaveBeenCalledWith('minor-tag', 'v1.5');
-      expect(mockCore.setOutput).toHaveBeenCalledWith('patch-tag', 'v1.5.7');
-    });
-    
-    test('should fail when package.json not found in package.json mode', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      fs.existsSync.mockReturnValue(false);
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'version-source': 'package.json',
-          'release-branch-pattern': 'release/v*',
-          'tag-prefix': 'v',
-          'create-tags': 'false'
-        };
-        return defaults[name] || '';
-      });
-      
-      await run();
-      
-      expect(mockCore.setFailed).toHaveBeenCalledWith('Could not read version from package.json');
-    });
-    
-    test('should fail when major version mismatch between package.json and branch', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '2.0.0' }));
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'version-source': 'package.json',
-          'github-token': 'test-token',
-          'create-tags': 'true',
-          'release-branch-pattern': 'release/v*',
-          'tag-prefix': 'v'
-        };
-        return defaults[name] || '';
-      });
-      
-      await run();
-      
-      expect(mockCore.setFailed).toHaveBeenCalledWith(expect.stringContaining('Version mismatch'));
-    });
-    
-    test('should fail when minor version mismatch between package.json and branch', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v2.1';
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '2.0.0' }));
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'version-source': 'package.json',
-          'github-token': 'test-token',
-          'create-tags': 'true',
-          'release-branch-pattern': 'release/v*',
-          'tag-prefix': 'v'
-        };
-        return defaults[name] || '';
-      });
-      
-      await run();
-      
-      expect(mockCore.setFailed).toHaveBeenCalledWith(expect.stringContaining('Version mismatch'));
-    });
-    
-    test('should NOT fail when branch has no minor version but package.json does', async () => {
-      // This tests the fix: release/v1 should not conflict with package.json 1.1.0
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.1.0' }));
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'version-source': 'package.json',
-          'github-token': 'test-token',
-          'create-tags': 'true',
-          'release-branch-pattern': 'release/v*',
-          'tag-prefix': 'v'
-        };
-        return defaults[name] || '';
-      });
-      
-      await run();
-      
-      // Should succeed because release/v1 doesn't specify a minor version
-      expect(mockCore.setFailed).not.toHaveBeenCalled();
-      expect(mockCore.setOutput).toHaveBeenCalledWith('version', expect.stringMatching(/^1\.1\.\d+$/));
+
+      expect(mockGithub.getOctokit).not.toHaveBeenCalled();
+      expect(mockCore.setOutput).toHaveBeenCalledWith('version', '4.1.9');
+      expect(mockCore.setOutput).toHaveBeenCalledWith('tags', '');
+      expect(mockCore.setOutput).toHaveBeenCalledWith('major-tag', 'v4');
+      expect(mockCore.setOutput).toHaveBeenCalledWith('minor-tag', 'v4.1');
+      expect(mockCore.setOutput).toHaveBeenCalledWith('patch-tag', 'v4.1.9');
     });
 
-    test('should handle package.json read errors', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockImplementation(() => {
-        throw new Error('Permission denied');
-      });
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'version-source': 'package.json',
-          'release-branch-pattern': 'release/v*',
-          'tag-prefix': 'v',
-          'create-tags': 'false'
-        };
-        return defaults[name] || '';
-      });
-      
-      await run();
-      
-      expect(mockCore.setFailed).toHaveBeenCalledWith('Could not read version from package.json');
-    });
-  });
-  
-  describe('Manual version specification', () => {
-    test('should use manually specified version', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const values = {
-          'version-source': 'manual',
-          'major-version': '3',
-          'minor-version': '2',
-          'patch-version': '1',
-          'github-token': 'test-token',
-          'create-tags': 'true'
-        };
-        return values[name] || '';
-      });
-      
-      await run();
-      
-      expect(mockCore.setOutput).toHaveBeenCalledWith('version', '3.2.1');
-      expect(mockCore.setOutput).toHaveBeenCalledWith('major-tag', 'v3');
-      expect(mockCore.setOutput).toHaveBeenCalledWith('minor-tag', 'v3.2');
-      expect(mockCore.setOutput).toHaveBeenCalledWith('patch-tag', 'v3.2.1');
-    });
-  });
-  
-  describe('Custom tag prefix', () => {
-    test('should use custom tag prefix', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.0.0' }));
-      
-      mockCore.getInput.mockImplementation((name) => {
-        if (name === 'tag-prefix') return 'release-';
-        if (name === 'github-token') return 'test-token';
-        if (name === 'create-tags') return 'true';
-        return '';
-      });
-      
-      await run();
-      
-      expect(mockCore.setOutput).toHaveBeenCalledWith('major-tag', 'release-1');
-      expect(mockCore.setOutput).toHaveBeenCalledWith('minor-tag', 'release-1.0');
-      expect(mockCore.setOutput).toHaveBeenCalledWith('patch-tag', 'release-1.0.0');
-    });
-  });
-  
-  describe('Auto version source mode', () => {
-    test('should use package.json when available in auto mode', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
+    test('increments patch versions in auto mode from the highest matching existing tag', async () => {
       fs.existsSync.mockReturnValue(true);
       fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.2.0' }));
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'version-source': 'auto',
-          'github-token': 'test-token',
-          'create-tags': 'true',
-          'release-branch-pattern': 'release/v*',
-          'tag-prefix': 'v'
-        };
-        return defaults[name] || '';
+      octokit.rest.repos.listTags.mockResolvedValue({
+        data: [{ name: 'v1.2.0' }, { name: 'v1.2.1' }, { name: 'v1.2.9' }]
       });
-      
-      const mockOctokit = mockGithub.getOctokit();
-      mockOctokit.rest.repos.listTags.mockResolvedValue({ data: [] });
-      mockOctokit.rest.git.getRef.mockRejectedValue({ status: 404 });
-      
-      await run();
-      
-      expect(mockCore.setOutput).toHaveBeenCalledWith('version', expect.stringMatching(/^1\.2\.\d+$/));
-    });
-    
-    test('should fallback to branch name when package.json not available in auto mode', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v2';
-      fs.existsSync.mockReturnValue(false);
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'version-source': 'auto',
-          'github-token': 'test-token',
-          'create-tags': 'true',
-          'release-branch-pattern': 'release/v*',
-          'tag-prefix': 'v'
-        };
-        return defaults[name] || '';
-      });
-      
-      const mockOctokit = mockGithub.getOctokit();
-      mockOctokit.rest.git.getRef.mockRejectedValue({ status: 404 });
-      
-      await run();
-      
-      expect(mockCore.setOutput).toHaveBeenCalledWith('version', expect.stringMatching(/^2\.0\.\d+$/));
-    });
-    
-    test('should fail when major version mismatch in auto mode', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '3.0.0' }));
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'version-source': 'auto',
-          'github-token': 'test-token',
-          'create-tags': 'true',
-          'release-branch-pattern': 'release/v*',
-          'tag-prefix': 'v'
-        };
-        return defaults[name] || '';
-      });
-      
-      await run();
-      
-      expect(mockCore.setFailed).toHaveBeenCalledWith(expect.stringContaining('Version mismatch'));
-    });
-    
-    test('should fail when no version can be determined', async () => {
-      mockGithub.context.ref = 'refs/heads/release/invalidname';
-      fs.existsSync.mockReturnValue(false);
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'version-source': 'auto',
-          'github-token': 'test-token',
-          'create-tags': 'true',
-          'release-branch-pattern': 'release/v*',
-          'tag-prefix': 'v'
-        };
-        return defaults[name] || '';
-      });
-      
-      await run();
-      
-      expect(mockCore.setFailed).toHaveBeenCalledWith('Could not determine version from any source');
-    });
-  });
-  
-  describe('Tag already exists', () => {
-    test('should fail when patch tag already exists', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.2.3' }));
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'version-source': 'package.json',
-          'github-token': 'test-token',
-          'create-tags': 'true',
-          'release-branch-pattern': 'release/v*',
-          'tag-prefix': 'v'
-        };
-        return defaults[name] || '';
-      });
-      
-      const mockOctokit = mockGithub.getOctokit();
-      // Mock that the tag already exists
-      mockOctokit.rest.git.getRef.mockResolvedValue({ 
-        data: { object: { sha: 'existing-sha' } } 
-      });
-      
-      await run();
-      
-      expect(mockCore.setFailed).toHaveBeenCalledWith(expect.stringContaining('already exists'));
-    });
-    
-    test('should handle non-404 errors when checking tag existence', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.2.3' }));
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'version-source': 'package.json',
-          'github-token': 'test-token',
-          'create-tags': 'true',
-          'release-branch-pattern': 'release/v*',
-          'tag-prefix': 'v'
-        };
-        return defaults[name] || '';
-      });
-      
-      const mockOctokit = mockGithub.getOctokit();
-      // Mock a non-404 error
-      const error = new Error('API Error');
-      error.status = 500;
-      mockOctokit.rest.git.getRef.mockRejectedValue(error);
-      
-      await run();
-      
-      expect(mockCore.setFailed).toHaveBeenCalled();
-    });
-  });
-  
-  describe('Error handling', () => {
-    test('should handle errors when listing tags', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      fs.existsSync.mockReturnValue(false);
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'github-token': 'test-token',
-          'create-tags': 'true',
-          'release-branch-pattern': 'release/v*',
-          'tag-prefix': 'v',
-          'version-source': 'auto'
-        };
-        return defaults[name] || '';
-      });
-      
-      const mockOctokit = mockGithub.getOctokit();
-      mockOctokit.rest.repos.listTags.mockRejectedValue(new Error('API Error'));
-      mockOctokit.rest.git.getRef.mockRejectedValue({ status: 404 });
-      
-      await run();
-      
-      // Should still work with warning, using default patch version 0
-      expect(mockCore.warning).toHaveBeenCalledWith(expect.stringContaining('Could not fetch existing tags'));
-    });
-    
-    test('should skip versioning when not on release branch', async () => {
-      mockGithub.context.ref = 'refs/heads/main';
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'version-source': 'auto',
-          'github-token': 'test-token',
-          'create-tags': 'true',
-          'release-branch-pattern': 'release/v*',
-          'tag-prefix': 'v'
-        };
-        return defaults[name] || '';
-      });
-      
-      await run();
-      
-      expect(mockCore.warning).toHaveBeenCalledWith('Not on a release branch. Skipping versioning.');
-    });
-  });
-  
-  describe('Patch version increment', () => {
-    test('should increment patch version when patch is 0', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.2.0' }));
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'github-token': 'test-token',
-          'create-tags': 'true',
-          'release-branch-pattern': 'release/v*',
-          'tag-prefix': 'v',
-          'version-source': 'auto'
-        };
-        return defaults[name] || '';
-      });
-      
-      const mockOctokit = mockGithub.getOctokit();
-      mockOctokit.rest.repos.listTags.mockResolvedValue({ 
-        data: [{ name: 'v1.2.0' }] 
-      });
-      mockOctokit.rest.git.getRef.mockRejectedValue({ status: 404 });
-      
-      await run();
-      
-      // Should increment to v1.2.1
-      expect(mockCore.setOutput).toHaveBeenCalledWith('version', expect.stringMatching(/^1\.2\.\d+$/));
-      expect(mockCore.setOutput).toHaveBeenCalledWith('patch-tag', expect.stringMatching(/^v1\.2\.\d+$/));
-    });
-    
-    test('should not increment patch version when it is non-zero in package.json mode', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.2.5' }));
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'version-source': 'package.json',
-          'github-token': 'test-token',
-          'create-tags': 'true',
-          'release-branch-pattern': 'release/v*',
-          'tag-prefix': 'v'
-        };
-        return defaults[name] || '';
-      });
-      
-      const mockOctokit = mockGithub.getOctokit();
-      mockOctokit.rest.git.getRef.mockRejectedValue({ status: 404 });
-      
-      await run();
-      
-      // Should use the version from package.json as-is
-      expect(mockCore.setOutput).toHaveBeenCalledWith('version', '1.2.5');
-      expect(mockCore.setOutput).toHaveBeenCalledWith('patch-tag', 'v1.2.5');
-    });
-    
-    test('should not increment patch version when it is non-zero in auto mode', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.2.7' }));
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'version-source': 'auto',
-          'github-token': 'test-token',
-          'create-tags': 'true',
-          'release-branch-pattern': 'release/v*',
-          'tag-prefix': 'v'
-        };
-        return defaults[name] || '';
-      });
-      
-      const mockOctokit = mockGithub.getOctokit();
-      mockOctokit.rest.git.getRef.mockRejectedValue({ status: 404 });
-      
-      await run();
-      
-      // Should use the version from package.json as-is
-      expect(mockCore.setOutput).toHaveBeenCalledWith('version', '1.2.7');
-      expect(mockCore.setOutput).toHaveBeenCalledWith('patch-tag', 'v1.2.7');
-    });
-    
-    test('should handle tag creation failures gracefully', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      fs.existsSync.mockReturnValue(false);
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'github-token': 'test-token',
-          'create-tags': 'true',
-          'release-branch-pattern': 'release/v*',
-          'tag-prefix': 'v',
-          'version-source': 'auto'
-        };
-        return defaults[name] || '';
-      });
-      
-      const mockOctokit = mockGithub.getOctokit();
-      mockOctokit.rest.git.getRef.mockRejectedValue({ status: 404 });
-      mockOctokit.rest.git.createRef.mockRejectedValue(new Error('API Error'));
-      
-      await run();
-      
-      // Should still complete but with error logged
-      expect(mockCore.error).toHaveBeenCalled();
-    });
-    
-    test('should handle non-404 errors when checking if tag exists for update', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      fs.existsSync.mockReturnValue(false);
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'github-token': 'test-token',
-          'create-tags': 'true',
-          'release-branch-pattern': 'release/v*',
-          'tag-prefix': 'v',
-          'version-source': 'auto'
-        };
-        return defaults[name] || '';
-      });
-      
-      const mockOctokit = mockGithub.getOctokit();
-      // First call (checking patch tag exists) returns 404
-      // Second call (checking major tag for update) returns 500 error
-      let callCount = 0;
-      mockOctokit.rest.git.getRef.mockImplementation(() => {
-        callCount++;
-        if (callCount === 1) {
-          const error = new Error('Not found');
-          error.status = 404;
-          return Promise.reject(error);
-        } else {
-          const error = new Error('API Error');
-          error.status = 500;
-          return Promise.reject(error);
-        }
-      });
-      
-      await run();
-      
-      // Should log error for failed tag operations
-      expect(mockCore.error).toHaveBeenCalled();
-    });
-  });
-  
-  describe('Tag update', () => {
-    test('should update existing major and minor tags', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1';
-      fs.existsSync.mockReturnValue(false);
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'github-token': 'test-token',
-          'create-tags': 'true',
-          'release-branch-pattern': 'release/v*',
-          'tag-prefix': 'v',
-          'version-source': 'auto'
-        };
-        return defaults[name] || '';
-      });
-      
-      const mockOctokit = mockGithub.getOctokit();
-      // Mock that major and minor tags exist
-      mockOctokit.rest.git.getRef.mockImplementation(async ({ ref }) => {
-        if (ref === 'tags/v1' || ref === 'tags/v1.0') {
+      octokit.rest.git.getRef.mockImplementation(async ({ ref }) => {
+        if (ref === 'tags/v1' || ref === 'tags/v1.2') {
           return { data: { object: { sha: 'old-sha' } } };
         }
-        const error = new Error('Not found');
-        error.status = 404;
-        throw error;
+        throw makeNotFoundError();
       });
-      
+
       await run();
-      
-      // Should update existing tags
-      expect(mockOctokit.rest.git.updateRef).toHaveBeenCalled();
+
+      expect(mockCore.setOutput).toHaveBeenCalledWith('version', '1.2.10');
+      expect(octokit.rest.git.updateRef).toHaveBeenCalledTimes(2);
+      expect(octokit.rest.git.createRef).toHaveBeenCalledWith({
+        owner: 'test-owner',
+        repo: 'test-repo',
+        ref: 'refs/tags/v1.2.10',
+        sha: 'abc123def456'
+      });
+      expect(mockCore.setOutput).toHaveBeenCalledWith('tags', 'v1,v1.2,v1.2.10');
     });
-  });
-  
-  describe('Branch patterns', () => {
-    test('should handle release/v1.2.3 branch pattern', async () => {
-      mockGithub.context.ref = 'refs/heads/release/v1.2.3';
-      fs.existsSync.mockReturnValue(false);
-      
-      mockCore.getInput.mockImplementation((name) => {
-        const defaults = {
-          'github-token': 'test-token',
-          'create-tags': 'true',
-          'release-branch-pattern': 'release/v*',
-          'tag-prefix': 'v',
-          'version-source': 'auto'
-        };
-        return defaults[name] || '';
+
+    test('allows package.json minor versions when the release branch only specifies the major', async () => {
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.3.7' }));
+      setInputs({
+        'version-source': 'package.json',
+        'create-tags': 'false',
+        'github-token': ''
       });
-      
-      const mockOctokit = mockGithub.getOctokit();
-      mockOctokit.rest.git.getRef.mockRejectedValue({ status: 404 });
-      
+
       await run();
-      
-      expect(mockCore.setOutput).toHaveBeenCalledWith('version', '1.2.3');
-      expect(mockCore.setOutput).toHaveBeenCalledWith('major-tag', 'v1');
-      expect(mockCore.setOutput).toHaveBeenCalledWith('minor-tag', 'v1.2');
-      expect(mockCore.setOutput).toHaveBeenCalledWith('patch-tag', 'v1.2.3');
+
+      expect(mockCore.setFailed).not.toHaveBeenCalled();
+      expect(mockCore.setOutput).toHaveBeenCalledWith('version', '1.3.7');
+      expect(mockCore.setOutput).toHaveBeenCalledWith('patch-tag', 'v1.3.7');
+    });
+
+    test('fails in package.json mode when no readable version is available', async () => {
+      fs.existsSync.mockReturnValue(false);
+      setInputs({
+        'version-source': 'package.json',
+        'create-tags': 'false',
+        'github-token': ''
+      });
+
+      await run();
+
+      expect(mockCore.setFailed).toHaveBeenCalledWith('Could not read version from package.json');
+    });
+
+    test('fails in package.json mode when the branch major does not match', async () => {
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '2.0.1' }));
+      setInputs({ 'version-source': 'package.json' });
+
+      await run();
+
+      expect(mockCore.setFailed).toHaveBeenCalledWith(
+        'Version mismatch: package.json has major version 2 but release branch indicates v1'
+      );
+    });
+
+    test('fails when package.json minor version does not match an explicit branch minor', async () => {
+      mockGithub.context.ref = 'refs/heads/release/v2.1';
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '2.0.9' }));
+      setInputs({ 'version-source': 'package.json' });
+
+      await run();
+
+      expect(mockCore.setFailed).toHaveBeenCalledWith(
+        'Version mismatch: package.json has minor version 0 but release branch indicates v2.1'
+      );
+    });
+
+    test('increments patch versions in package.json mode when the declared patch is zero', async () => {
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.7.0' }));
+      setInputs({ 'version-source': 'package.json' });
+      octokit.rest.repos.listTags.mockResolvedValue({
+        data: [{ name: 'v1.7.0' }, { name: 'v1.7.4' }]
+      });
+
+      await run();
+
+      expect(mockCore.setOutput).toHaveBeenCalledWith('version', '1.7.5');
+      expect(mockCore.info).toHaveBeenCalledWith('Auto-incremented patch version to: 5');
+    });
+
+    test('falls back to branch-derived versions in auto mode when package.json is absent', async () => {
+      mockGithub.context.ref = 'refs/heads/release/v5.4.3';
+      fs.existsSync.mockReturnValue(false);
+
+      await run();
+
+      expect(mockCore.setOutput).toHaveBeenCalledWith('version', '5.4.3');
+      expect(mockCore.setOutput).toHaveBeenCalledWith('patch-tag', 'v5.4.3');
+    });
+
+    test('increments patch versions from branch-derived releases when the branch omits a patch', async () => {
+      mockGithub.context.ref = 'refs/heads/release/v5.4';
+      fs.existsSync.mockReturnValue(false);
+      octokit.rest.repos.listTags.mockResolvedValue({
+        data: [{ name: 'v5.4.0' }, { name: 'v5.4.2' }]
+      });
+
+      await run();
+
+      expect(mockCore.setOutput).toHaveBeenCalledWith('version', '5.4.3');
+      expect(mockCore.info).toHaveBeenCalledWith('Determined next patch version: 3');
+    });
+
+    test('fails in auto mode when package.json major does not match the release branch', async () => {
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '3.1.0' }));
+
+      await run();
+
+      expect(mockCore.setFailed).toHaveBeenCalledWith(
+        'Version mismatch: package.json has major version 3 but release branch indicates v1'
+      );
+    });
+
+    test('fails in auto mode when the release branch specifies a different minor version', async () => {
+      mockGithub.context.ref = 'refs/heads/release/v1.4';
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.3.0' }));
+
+      await run();
+
+      expect(mockCore.setFailed).toHaveBeenCalledWith(
+        'Version mismatch: package.json has minor version 3 but release branch indicates v1.4'
+      );
+    });
+
+    test('fails in auto mode when neither package.json nor the branch name yields a version', async () => {
+      mockGithub.context.ref = 'refs/heads/release/not-a-version';
+      fs.existsSync.mockReturnValue(false);
+
+      await run();
+
+      expect(mockCore.setFailed).toHaveBeenCalledWith('Could not determine version from any source');
+    });
+
+    test('fails before creating tags when the exact patch tag already exists', async () => {
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.2.3' }));
+      setInputs({ 'version-source': 'package.json' });
+      octokit.rest.git.getRef.mockResolvedValue({ data: { object: { sha: 'existing-sha' } } });
+
+      await run();
+
+      expect(mockCore.setFailed).toHaveBeenCalledWith(
+        'Tag v1.2.3 already exists. Cannot create duplicate version tag.'
+      );
+      expect(octokit.rest.git.createRef).not.toHaveBeenCalled();
+      expect(octokit.rest.git.updateRef).not.toHaveBeenCalled();
+    });
+
+    test('surfaces unexpected GitHub errors through the action failure path', async () => {
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({ version: '1.2.3' }));
+      setInputs({ 'version-source': 'package.json' });
+      const error = new Error('Server exploded');
+      error.status = 500;
+      octokit.rest.git.getRef.mockRejectedValue(error);
+
+      await run();
+
+      expect(mockCore.setFailed).toHaveBeenCalledWith('Action failed: Server exploded');
     });
   });
 });
